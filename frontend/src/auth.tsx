@@ -1,133 +1,168 @@
-import * as Linking from "expo-linking";
-import * as WebBrowser from "expo-web-browser";
+// Authentification KFIT — Supabase Auth (e-mail + mot de passe).
+//
+// Opérationnel : inscription, connexion, déconnexion, session persistante et
+// renouvelée automatiquement, profil (nom, langue, rôle) lu dans la table `users`.
+// Non intégré (rien n'est simulé) : connexion Google/Apple, réinitialisation du
+// mot de passe. Voir docs/AUTH.md.
+//
+// Transition : les écrans existants (programmes, coach IA, nutrition, réservations)
+// parlent encore à l'ancien serveur FastAPI. Celui-ci accepte désormais le jeton
+// Supabase ; on y lit les champs historiques (objectif, programme en cours).
+import type { Session } from "@supabase/supabase-js";
 import { createContext, ReactNode, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { Platform } from "react-native";
 
-import { api, setApiToken, setUnauthorizedHandler } from "@/src/api";
-import { Lang, useI18n } from "@/src/i18n";
-import { storage } from "@/src/utils/storage";
+import { api, setTokenProvider } from "@/src/api";
+import { Lang, LANGS, useI18n } from "@/src/i18n";
+import { supabase } from "@/src/supabase";
 
-WebBrowser.maybeCompleteAuthSession();
+export type Role = "client" | "coach" | "support" | "admin";
 
 export type User = {
-  user_id: string; email: string; name: string; picture?: string; lang: Lang;
+  user_id: string; email: string; name: string; picture?: string; lang: Lang; role: Role;
   goal?: string; program_id?: string; auth_provider: string;
 };
-type AuthOut = { token: string; user: User };
+
+// "signed_in" : session ouverte. "confirm_email" : compte créé, e-mail à confirmer.
+export type RegisterResult = "signed_in" | "confirm_email";
+
+// Codes d'erreur traduits dans i18n (clés authErr_*).
+export type AuthErrorCode = "invalid_credentials" | "email_not_confirmed" | "user_already_exists"
+  | "weak_password" | "rate_limited" | "unknown";
+
+export class AuthError extends Error {
+  code: AuthErrorCode;
+  constructor(code: AuthErrorCode) {
+    super(code);
+    this.code = code;
+  }
+}
+
+function toAuthError(e: any): AuthError {
+  const code: string = e?.code ?? "";
+  if (code === "invalid_credentials") return new AuthError("invalid_credentials");
+  if (code === "email_not_confirmed") return new AuthError("email_not_confirmed");
+  if (code === "user_already_exists" || code === "email_exists") return new AuthError("user_already_exists");
+  if (code === "weak_password") return new AuthError("weak_password");
+  if (code.startsWith("over_") || e?.status === 429) return new AuthError("rate_limited");
+  return new AuthError("unknown");
+}
 
 type Ctx = {
   user: User | null | undefined;
   login: (email: string, password: string) => Promise<void>;
-  register: (name: string, email: string, password: string) => Promise<void>;
-  loginGoogle: () => Promise<void>;
+  register: (name: string, email: string, password: string) => Promise<RegisterResult>;
   logout: () => Promise<void>;
   updateProfile: (p: Partial<Pick<User, "name" | "lang" | "goal">>) => Promise<void>;
   refresh: () => Promise<void>;
 };
 const AuthContext = createContext<Ctx>(null as any);
-const TOKEN_KEY = "auth_token";
 
-const extractSid = (url?: string | null) => url?.match(/[?#&]session_id=([^&#]+)/)?.[1] ?? null;
+const withTimeout = <T,>(p: Promise<T>, ms: number): Promise<T> =>
+  Promise.race([p, new Promise<T>((_, reject) => setTimeout(() => reject(new Error("timeout")), ms))]);
+
+async function loadUser(session: Session): Promise<User> {
+  const su = session.user;
+  const meta = (su.user_metadata ?? {}) as Record<string, any>;
+  const base: User = {
+    user_id: su.id,
+    email: su.email ?? "",
+    name: meta.full_name || (su.email ?? "").split("@")[0] || "KFIT",
+    lang: LANGS.includes(meta.lang) ? meta.lang : "fr",
+    role: "client",
+    auth_provider: "email",
+  };
+  try {
+    const { data } = await supabase.from("users").select("role, full_name, lang").eq("id", su.id).maybeSingle();
+    if (data) {
+      base.role = data.role as Role;
+      if (data.full_name) base.name = data.full_name;
+      if (LANGS.includes(data.lang)) base.lang = data.lang as Lang;
+    }
+  } catch {
+    // profil indisponible : on garde les informations de la session
+  }
+  try {
+    const legacy = await withTimeout(api<Partial<User>>("/auth/me"), 6000);
+    base.goal = legacy.goal;
+    base.program_id = legacy.program_id;
+  } catch {
+    // ancien serveur indisponible : l'utilisateur reste connecté
+  }
+  return base;
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null | undefined>(undefined);
   const { lang, setLang } = useI18n();
-  const sent = useRef(new Set<string>());
+  const currentId = useRef<string | null>(null);
 
-  const clear = useCallback(async () => {
-    await storage.secureRemove(TOKEN_KEY);
-    setApiToken(null);
-    setUser(null);
-  }, []);
-
-  const apply = useCallback(async (out: AuthOut) => {
-    await storage.secureSet(TOKEN_KEY, out.token);
-    setApiToken(out.token);
-    setLang(out.user.lang);
-    setUser(out.user);
-  }, [setLang]);
-
-  const exchange = useCallback(async (sid: string) => {
-    if (sent.current.has(sid)) return;
-    sent.current.add(sid);
-    const out = await api<AuthOut>("/auth/session", { method: "POST", body: { session_id: sid } });
-    await apply(out);
-    if (Platform.OS === "web") {
-      const u = new URL(window.location.href);
-      u.searchParams.delete("session_id");
-      u.hash = u.hash.replace(/session_id=[^&]+&?/, "").replace(/^#$/, "");
-      window.history.replaceState(window.history.state, "", u.toString());
-    }
-  }, [apply]);
-
-  useEffect(() => {
-    setUnauthorizedHandler(() => { clear(); });
-    (async () => {
-      try {
-        const sid = Platform.OS === "web" ? extractSid(window.location.href) : extractSid(await Linking.getInitialURL());
-        if (sid) {
-          await exchange(sid);
-          return;
-        }
-        const tok = await storage.secureGet(TOKEN_KEY, null);
-        if (!tok) return setUser(null);
-        setApiToken(tok as string);
-        const me = await api<User>("/auth/me");
-        setLang(me.lang);
-        setUser(me);
-      } catch {
-        await clear();
-      }
-    })();
-    if (Platform.OS === "web") return;
-    const sub = Linking.addEventListener("url", ({ url }) => {
-      const sid = extractSid(url);
-      if (sid) exchange(sid).catch(() => {});
-    });
-    return () => sub.remove();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const login = async (email: string, password: string) =>
-    apply(await api<AuthOut>("/auth/login", { method: "POST", body: { email, password } }));
-
-  const register = async (name: string, email: string, password: string) =>
-    apply(await api<AuthOut>("/auth/register", { method: "POST", body: { name, email, password, lang } }));
-
-  const loginGoogle = async () => {
-    const redirectUrl = Platform.OS === "web" ? `${window.location.origin}/` : Linking.createURL("");
-    const authUrl = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
-    if (Platform.OS === "web") {
-      window.location.href = authUrl;
+  const apply = useCallback(async (session: Session | null) => {
+    if (!session) {
+      currentId.current = null;
+      setUser(null);
       return;
     }
-    let captured: string | null = null;
-    const sub = Linking.addEventListener("url", ({ url }) => { captured = url; });
-    try {
-      const res = await WebBrowser.openAuthSessionAsync(authUrl, redirectUrl);
-      const url = (res.type === "success" ? res.url : null) || captured || (await Linking.getInitialURL());
-      const sid = extractSid(url);
-      if (sid) await exchange(sid);
-    } finally {
-      sub.remove();
-    }
+    currentId.current = session.user.id;
+    const u = await loadUser(session);
+    if (currentId.current !== u.user_id) return; // déconnexion ou changement de compte entre-temps
+    setLang(u.lang);
+    setUser(u);
+  }, [setLang]);
+
+  useEffect(() => {
+    setTokenProvider(async () => (await supabase.auth.getSession()).data.session?.access_token ?? null);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      // Un simple renouvellement de jeton ne change pas l'utilisateur.
+      if (event === "TOKEN_REFRESHED" && session && currentId.current === session.user.id) return;
+      // Ne jamais appeler Supabase directement dans ce rappel (risque de blocage) : on diffère.
+      setTimeout(() => { apply(session).catch(() => setUser(null)); }, 0);
+    });
+    return () => subscription.unsubscribe();
+  }, [apply]);
+
+  const login = async (email: string, password: string) => {
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw toAuthError(error);
+  };
+
+  const register = async (name: string, email: string, password: string): Promise<RegisterResult> => {
+    const { data, error } = await supabase.auth.signUp({
+      email, password, options: { data: { full_name: name, lang } },
+    });
+    if (error) throw toAuthError(error);
+    // Adresse déjà utilisée : Supabase renvoie un utilisateur factice sans identité.
+    if (data.user && (data.user.identities?.length ?? 0) === 0) throw new AuthError("user_already_exists");
+    return data.session ? "signed_in" : "confirm_email";
   };
 
   const logout = async () => {
-    await api("/auth/logout", { method: "POST" }).catch(() => {});
-    await clear();
+    await supabase.auth.signOut().catch(() => {});
+    currentId.current = null;
+    setUser(null);
   };
 
   const updateProfile = async (p: Partial<Pick<User, "name" | "lang" | "goal">>) => {
-    const u = await api<User>("/profile", { method: "PATCH", body: p });
+    if (!user) return;
+    const row: Record<string, string> = {};
+    if (p.name !== undefined) row.full_name = p.name;
+    if (p.lang !== undefined) row.lang = p.lang;
+    if (Object.keys(row).length) {
+      const { error } = await supabase.from("users").update(row).eq("id", user.user_id);
+      if (error) throw new Error(error.message);
+    }
+    // Champs encore gérés par l'ancien serveur (objectif) — au mieux.
+    await api("/profile", { method: "PATCH", body: p }).catch(() => {});
     if (p.lang) setLang(p.lang);
-    setUser(u);
+    setUser({ ...user, ...p });
   };
 
-  const refresh = async () => setUser(await api<User>("/auth/me"));
+  const refresh = async () => {
+    const { data } = await supabase.auth.getSession();
+    await apply(data.session);
+  };
 
   return (
-    <AuthContext.Provider value={{ user, login, register, loginGoogle, logout, updateProfile, refresh }}>
+    <AuthContext.Provider value={{ user, login, register, logout, updateProfile, refresh }}>
       {children}
     </AuthContext.Provider>
   );

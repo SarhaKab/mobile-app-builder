@@ -39,6 +39,11 @@ const en = {
   online: "Online video", pickDate: "Pick a date", pickTime: "Pick a time", confirm: "Confirm booking",
   myBookings: "My bookings", cancel: "Cancel", booked: "Session booked!", with: "with",
   language: "Language", logout: "Sign out", account: "Account", security: "Secured session · encrypted storage",
+  checkEmailTitle: "Check your inbox", checkEmailBody: "We sent a confirmation link to", checkEmailHint: "Open it to activate your account, then come back and sign in.",
+  backToLogin: "Back to sign in",
+  authErr_invalid_credentials: "Incorrect email or password", authErr_email_not_confirmed: "Please confirm your email address first (check your inbox)",
+  authErr_user_already_exists: "An account already exists with this email", authErr_weak_password: "This password is too weak — choose a longer, less common one",
+  authErr_rate_limited: "Too many attempts. Please wait a few minutes and try again", authErr_unknown: "Something went wrong. Check your connection and try again",
   required: "Please fill all fields correctly", error: "Something went wrong", retry: "Retry",
 };
 type Dict = typeof en;
@@ -76,6 +81,11 @@ const es: Dict = {
   online: "Video en línea", pickDate: "Elige una fecha", pickTime: "Elige una hora", confirm: "Confirmar reserva",
   myBookings: "Mis reservas", cancel: "Cancelar", booked: "¡Sesión reservada!", with: "con",
   language: "Idioma", logout: "Cerrar sesión", account: "Cuenta", security: "Sesión segura · almacenamiento cifrado",
+  checkEmailTitle: "Revisa tu correo", checkEmailBody: "Enviamos un enlace de confirmación a", checkEmailHint: "Ábrelo para activar tu cuenta y luego vuelve para iniciar sesión.",
+  backToLogin: "Volver a iniciar sesión",
+  authErr_invalid_credentials: "Correo o contraseña incorrectos", authErr_email_not_confirmed: "Primero confirma tu correo (revisa tu bandeja de entrada)",
+  authErr_user_already_exists: "Ya existe una cuenta con este correo", authErr_weak_password: "Contraseña demasiado débil: elige una más larga y menos común",
+  authErr_rate_limited: "Demasiados intentos. Espera unos minutos e inténtalo de nuevo", authErr_unknown: "Algo salió mal. Revisa tu conexión e inténtalo de nuevo",
   required: "Completa todos los campos correctamente", error: "Algo salió mal", retry: "Reintentar",
 };
 
@@ -112,6 +122,11 @@ const fr: Dict = {
   online: "Visio en ligne", pickDate: "Choisis une date", pickTime: "Choisis un horaire", confirm: "Confirmer la réservation",
   myBookings: "Mes réservations", cancel: "Annuler", booked: "Séance réservée !", with: "avec",
   language: "Langue", logout: "Se déconnecter", account: "Compte", security: "Session sécurisée · stockage chiffré",
+  checkEmailTitle: "Vérifie ta boîte mail", checkEmailBody: "Nous avons envoyé un lien de confirmation à", checkEmailHint: "Ouvre-le pour activer ton compte, puis reviens te connecter.",
+  backToLogin: "Retour à la connexion",
+  authErr_invalid_credentials: "E-mail ou mot de passe incorrect", authErr_email_not_confirmed: "Confirme d'abord ton adresse e-mail (vérifie ta boîte mail)",
+  authErr_user_already_exists: "Un compte existe déjà avec cet e-mail", authErr_weak_password: "Mot de passe trop faible : choisis-en un plus long et moins courant",
+  authErr_rate_limited: "Trop de tentatives. Patiente quelques minutes puis réessaie", authErr_unknown: "Une erreur est survenue. Vérifie ta connexion et réessaie",
   required: "Remplis correctement tous les champs", error: "Une erreur est survenue", retry: "Réessayer",
 };
 

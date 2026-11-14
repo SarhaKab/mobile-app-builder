@@ -19,3 +19,6 @@ revoke execute on function
   refresh_coach_rating(), guard_users(), guard_coach_profile(), guard_review_fields(),
   guard_ticket(), guard_booking_price(), require_health_consent()
 from authenticated, anon, public;
+
+-- Le service d'authentification Supabase déclenche la création du profil à l'inscription.
+grant execute on function public.handle_new_auth_user() to supabase_auth_admin;
