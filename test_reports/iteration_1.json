@@ -1,0 +1,61 @@
+{
+  "summary": "First-ever test run on the Supabase-transition branch of KFIT. Backend contract for the transition is CORRECT: all 7 focused pytest cases pass (/api/auth/me, /dashboard, /programs return 401 for no token AND for a garbage Bearer in <2s each, so Supabase lookup does not hang; legacy POST /api/auth/login with demo@kfit.app still returns a usable JWT accepted by /auth/me). Frontend welcome + login UI, language switch (EN/ES/FR), client-side validation, protected-route redirect to /welcome, 'back-to-login' flow and invalid-credentials translation (FR/EN/ES) all work. However, the Supabase happy-path sign-up REQUESTED by the brief could NOT be completed with the specified e-mail pattern kfit.test.<timestamp>@example.com: the very first attempt returned HTTP 400 from Supabase and the app showed the generic 'Une erreur est survenue' (authErr_unknown) instead of the expected 'confirm your email' screen; every subsequent attempt was 429 over_email_send_rate_limit (correctly translated as authErr_rate_limited). Root cause of the 400 is almost certainly the Supabase default rejection of example.com addresses (code email_address_invalid), which is NOT mapped in frontend/src/auth.tsx toAuthError(), so it falls through to 'unknown'. Because no account was created, the three follow-up checks (sign-in with unconfirmed account -> email_not_confirmed, same-email duplicate sign-up, session persistence/logout) COULD NOT BE EXECUTED. Deprecated Expo API detected: expo-router/unstable-native-tabs warning emitted at load (should migrate to expo-router/native-tabs).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "login error mapping",
+        "issue": "Supabase sign-up error code 'email_address_invalid' (Supabase rejects @example.com and a few other disposable domains) is not handled in toAuthError() so the user sees the generic 'Une erreur est survenue. Vérifie ta connexion et réessaie' (authErr_unknown). Reference: /app/frontend/src/auth.tsx:40-48. Add a branch for 'email_address_invalid' (and ideally 'validation_failed', 'signup_disabled') mapped to a new translated key such as authErr_invalid_email so the user understands the e-mail is refused rather than thinking the connection is broken.",
+        "testID": "login-submit-button",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "sign-up happy path",
+        "issue": "The brief requires kfit.test.<timestamp>@example.com, but the Supabase project rejects example.com (first attempt: 400). Subsequent attempts are blocked by Supabase's built-in SMTP rate limit (429 over_email_send_rate_limit). Net effect: sign-up cannot be completed from CI/test with this domain, so the confirm-email screen, unconfirmed-account sign-in, same-email duplicate and session persistence could not be exercised. Not an app bug per se, but combined with the missing error mapping above it looks like one to the end user.",
+        "affected_testIDs": ["login-submit-button", "login-confirm-email", "login-confirm-email-address"]
+      }
+    ],
+    "design_issues": [],
+    "react_native_issues": [
+      {
+        "component": "expo-router tabs",
+        "issue": "Deprecation warning at every bundle load: '`expo-router/unstable-native-tabs` is deprecated. Use `expo-router/native-tabs` instead.' Reference: the (tabs) group layout imports from unstable-native-tabs. Migrate the import to 'expo-router/native-tabs'."
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_auth_supabase_transition.py",
+    "/app/test_reports/pytest/supabase_transition.xml"
+  ],
+  "action_items": [
+    "Map Supabase error code 'email_address_invalid' (seen as HTTP 400 with {\"code\":\"email_address_invalid\"}) in /app/frontend/src/auth.tsx toAuthError() to a new AuthErrorCode (e.g. 'invalid_email') and add translated keys authErr_invalid_email in FR/EN/ES so the user is told the e-mail domain is refused.",
+    "Replace the deprecated 'expo-router/unstable-native-tabs' import in the (tabs) layout with 'expo-router/native-tabs'.",
+    "To finish the end-to-end sign-up / sign-in test on a testing environment: (a) switch the test e-mail pattern from @example.com to a domain Supabase accepts (e.g. a real inbox you control, or disable the 'blocked domains' rule in Supabase Auth), OR (b) seed one CONFIRMED Supabase account manually (via Supabase dashboard -> Authentication -> Users -> Add user with 'Auto Confirm User' ticked) so the next test agent can exercise login, me, dashboard, logout, session persistence; the credentials of that account should be added to /app/memory/test_credentials.md.",
+    "The Supabase e-mail service is now rate-limited (over_email_send_rate_limit). Wait ~1 hour before the next sign-up attempt, or configure a real SMTP provider in Supabase as the docs/AUTH.md section already recommends.",
+    "Clean-up note for the owner: the sign-up attempts with kfit.test.1794650678@example.com and kfit.test.1794650817@example.com were REJECTED by Supabase (400 then 429), so NO Supabase user was actually created and there is nothing to delete."
+  ],
+  "critical_code_review_comments": [
+    "frontend/src/auth.tsx toAuthError(): list of mapped error codes is incomplete. Supabase can also return 'email_address_invalid', 'validation_failed', 'signup_disabled', 'same_password', 'anonymous_provider_disabled', 'session_not_found' — all of them currently collapse to 'unknown', hiding useful information from the user.",
+    "frontend/app/login.tsx submit(): the three client-side validations (empty name, bad e-mail, short password) all produce the same 'Remplis correctement tous les champs' message. It works but makes the exact missing field invisible — consider per-field inline errors.",
+    "backend/server.py supabase_user_id(): handles httpx errors defensively and a 10 s timeout is already set, which is why /api/auth/me stays fast on a bogus token (observed ~0.3 s). Good.",
+    "backend/server.py current_user(): legacy JWT path and Supabase-token path are both exercised; the fallback chain (JWT -> session token -> Supabase) correctly returns 401 for garbage tokens.",
+    "frontend/src/supabase.ts: publishable key hard-coded as default. Fine per the comment ('public by design'), but worth confirming that no sb_secret_… / service_role key is ever bundled (grep confirmed none)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_auth_supabase_transition.py (new focused pytest file for the Supabase-transition contract)"
+  ],
+  "success_rate": {
+    "backend": "100% (7/7 focused tests pass)",
+    "frontend": "~70% — welcome, lang switch, validation, invalid-credentials translation, protected-route redirect all OK; happy-path sign-up, unconfirmed-sign-in, same-email duplicate, logout, session persistence NOT TESTED (blocked by Supabase rejecting @example.com and then rate-limiting)"
+  },
+  "seed_data_creation": "None. Two Supabase sign-ups were attempted (kfit.test.1794650678@example.com and kfit.test.1794650817@example.com) but both were REJECTED by Supabase (400 then 429), so no account exists and no clean-up is required.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "To actually test the happy-path Supabase flow, you need either (1) a confirmed Supabase user added to /app/memory/test_credentials.md (easiest: create one from the Supabase dashboard with 'Auto Confirm User' enabled), or (2) a test e-mail domain the Supabase project accepts (not example.com). Until then, the following checks are blocked: confirm-email screen content, email_not_confirmed sign-in error path, user_already_exists on duplicate sign-up, successful sign-in, session persistence on reload, logout, and backend acceptance of a real Supabase access_token on /api/auth/me and /api/dashboard. The backend side of that last check is already implemented in /app/backend/server.py:supabase_user_id() and ready to be exercised.",
+  "rca_of_issue": "The missing 'email_address_invalid' mapping in frontend/src/auth.tsx is what turned a predictable Supabase rejection into an alarming 'Une erreur est survenue. Vérifie ta connexion' screen. Reproduction: open /welcome, tap 'Commencer', fill name=anything, email=kfit.test.<ts>@example.com, password=StrongTestPw1!, tap 'Créer un compte'. Supabase responds 400 {\"code\":\"email_address_invalid\"}. Mitigation: extend toAuthError() with `if (code === 'email_address_invalid') return new AuthError('invalid_email');`, add the matching AuthErrorCode and i18n keys authErr_invalid_email (FR: 'Cette adresse e-mail est refusée par le service. Utilise une adresse valide.' / EN / ES)."
+}

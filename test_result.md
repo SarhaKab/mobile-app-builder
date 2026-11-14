@@ -101,3 +101,6 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+agent_communication:
+  - agent: "main"
+    message: "Merged GitHub branch kfit-supabase (user's own code). Auth switched from backend JWT to Supabase Auth (email+password) in frontend/src/supabase.ts, src/auth.tsx, app/login.tsx; backend current_user() now also accepts Supabase access tokens (supabase_user_id). Google button removed. Supabase project requires e-mail confirmation (mailer_autoconfirm=false) and no confirmed Supabase test account exists, so a successful sign-in cannot be tested yet. Needs testing: sign-up -> confirm-email screen, login error states, backend token rejection, legacy endpoints."
