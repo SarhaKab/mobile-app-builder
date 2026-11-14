@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+import time
 import uuid
 from contextlib import suppress
 from datetime import datetime, timedelta, timezone
@@ -35,11 +36,17 @@ JWT_ISS, JWT_AUD = "kfit-api", "kfit-app"
 TOKEN_DAYS = 7
 MAX_FAILED, LOCK_MINUTES = 5, 15
 MODEL = ("anthropic", "claude-sonnet-5-5")
+# Supabase Auth (transition) : l'application s'authentifie désormais auprès de Supabase.
+# Ces deux valeurs sont publiques par conception (URL + clé « publishable »).
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://soaivvemysgzmjntmkta.supabase.co").rstrip("/")
+SUPABASE_KEY = os.environ.get("SUPABASE_PUBLISHABLE_KEY", "sb_publishable_MgI2Me489KLXdfeANIVnkQ_GKMdHeRy")
+SUPABASE_CACHE_SECONDS = 60
 logger = logging.getLogger("kfit")
 
 INDEXES: dict[str, list[IndexModel]] = {
     "users": [IndexModel([("email", ASCENDING)], name="email", unique=True),
-              IndexModel([("user_id", ASCENDING)], name="user_id", unique=True)],
+              IndexModel([("user_id", ASCENDING)], name="user_id", unique=True),
+              IndexModel([("supabase_id", ASCENDING)], name="supabase_id", unique=True, sparse=True)],
     "user_sessions": [IndexModel([("session_token", ASCENDING)], name="token", unique=True),
                       IndexModel([("user_id", ASCENDING)], name="user_id"),
                       IndexModel([("expires_at", ASCENDING)], name="ttl", expireAfterSeconds=0)],
@@ -171,6 +178,59 @@ def bearer(request: Request) -> str:
     return h[7:].strip()
 
 
+_supabase_cache: dict[str, tuple[str, float]] = {}
+
+
+async def supabase_user_id(token: str) -> Optional[str]:
+    """Vérifie un jeton Supabase auprès de Supabase Auth et renvoie le user_id local.
+
+    Le jeton n'est jamais validé localement : c'est Supabase qui confirme qu'il est
+    authentique et non expiré. Un compte historique (même e-mail) n'est rattaché que si
+    l'adresse a été confirmée côté Supabase, pour qu'on ne puisse pas s'approprier les
+    données d'un autre en s'inscrivant avec son adresse.
+    """
+    hit = _supabase_cache.get(token)
+    if hit and hit[1] > time.time():
+        return hit[0]
+    try:
+        async with httpx.AsyncClient(timeout=10) as c:
+            r = await c.get(f"{SUPABASE_URL}/auth/v1/user",
+                            headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {token}"})
+    except httpx.HTTPError as exc:
+        logger.error("supabase auth unreachable: %s", exc)
+        return None
+    if r.status_code != 200:
+        return None
+    data = r.json()
+    sid, email = data.get("id"), (data.get("email") or "").lower()
+    if not sid or not email:
+        return None
+    user = await db.users.find_one({"supabase_id": sid}, {"_id": 0})
+    if not user:
+        legacy = await db.users.find_one({"email": email}, {"_id": 0})
+        if legacy:
+            if not (data.get("email_confirmed_at") or data.get("confirmed_at")):
+                return None
+            await db.users.update_one({"user_id": legacy["user_id"]}, {"$set": {"supabase_id": sid}})
+            user = legacy
+        else:
+            meta = data.get("user_metadata") or {}
+            user = {"user_id": f"user_{uuid.uuid4().hex[:12]}", "email": email, "supabase_id": sid,
+                    "name": str(meta.get("full_name") or email.split("@")[0])[:60],
+                    "lang": meta.get("lang") if meta.get("lang") in ("en", "es", "fr") else "fr",
+                    "auth_provider": "supabase", "created_at": now()}
+            try:
+                await db.users.insert_one(dict(user))
+            except DuplicateKeyError:
+                user = await db.users.find_one({"supabase_id": sid}, {"_id": 0})
+                if not user:
+                    return None
+    if len(_supabase_cache) > 5000:
+        _supabase_cache.clear()
+    _supabase_cache[token] = (user["user_id"], time.time() + SUPABASE_CACHE_SECONDS)
+    return user["user_id"]
+
+
 async def current_user(request: Request) -> dict:
     token = bearer(request)
     user_id = None
@@ -181,9 +241,12 @@ async def current_user(request: Request) -> dict:
         user_id = claims["sub"]
     except jwt.InvalidTokenError:
         s = await db.user_sessions.find_one({"session_token": token}, {"_id": 0})
-        if not s or aware(s["expires_at"]) < now():
-            raise HTTPException(401, "Invalid or expired session")
-        user_id = s["user_id"]
+        if s and aware(s["expires_at"]) >= now():
+            user_id = s["user_id"]
+        else:
+            user_id = await supabase_user_id(token)
+            if not user_id:
+                raise HTTPException(401, "Invalid or expired session")
     user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     if not user:
         raise HTTPException(401, "User not found")
