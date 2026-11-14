@@ -44,7 +44,7 @@ export default function ExerciseDetail() {
         <Text style={s.missing} testID="exercise-missing">{state.err ? t("error") : t("notFound")}</Text>
       ) : (
         <ScrollView contentContainerStyle={[s.content, { paddingBottom: insets.bottom + spacing.lg }]}>
-          <VideoPlayer path={media} loop />
+          <VideoPlayer path={media} title={loc(e.name, lang)} />
           {!!media && draft && <Text style={s.draft} testID="exercise-video-draft">{t("videoDraft")}</Text>}
           <View style={s.group}>
             {rows.map(([label, value]) => (

@@ -53,3 +53,15 @@ where id = (select id from auth.users where email = 'adresse@exemple.com');
   seuls les administrateurs les voient ; validation ou retrait depuis Administration → exercice → « Vidéo de démonstration ».
 - Limite connue : le masquage des brouillons est fait par l'application ; un utilisateur connecté qui connaîtrait le chemin
   exact du fichier pourrait le lire (règle de stockage ouverte à tout le bucket `videos`).
+
+## Vidéos commentées et sous-titrées (14/11/2026)
+
+- `backend/scripts/narrate_exercise_videos.py` : pour chaque exercice et chaque langue (fr, en, es), une voix off (OpenAI TTS,
+  `gpt-4o-mini-tts`, voix « coral ») lit la fiche : présentation, consignes étape par étape, puis séries / répétitions / repos
+  des trois niveaux. La démonstration muette est rejouée en boucle pendant tout le commentaire (≈ 95 à 115 s).
+- Fichiers dans le stockage `videos` : `<nom>.mp4` (démonstration muette), `<nom>.<langue>.mp4` (commentée),
+  `<nom>.<langue>.json` (sous-titres synchronisés). Le lecteur (`src/components/video-player.tsx`) choisit la langue du compte,
+  affiche les sous-titres sous la vidéo (activés par défaut, bouton pour les masquer) et retombe sur la démonstration muette
+  si la langue n'existe pas. Valider ou retirer une vidéo traite tous ses fichiers.
+- Limites : c'est une voix off, la personne à l'image ne parle pas ; voix entraînées sur l'anglais (accent possible en français
+  et en espagnol) ; les séances de programme n'ont pas encore de vidéo ni de commentaire.

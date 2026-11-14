@@ -36,18 +36,42 @@ export const signedVideoUrl = async (path: string) => {
   if (error) throw new Error(error.message);
   return data.signedUrl;
 };
-/** Valide une vidéo brouillon : le fichier quitte « drafts/ » et devient visible des clients. */
-export const approveExerciseMedia = async (exerciseId: string, path: string) => {
-  const to = path.slice(DRAFT_PREFIX.length);
-  await supabase.storage.from("videos").remove([to]); // remplace une éventuelle version précédente
-  const { error } = await supabase.storage.from("videos").move(path, to);
+export type Cue = { start: number; end: number; text: string };
+/** Vidéo à lire pour une langue : la version commentée (voix + sous-titres) si elle existe, sinon la démonstration muette. */
+export async function loadMedia(path: string, lang: Lang): Promise<{ url: string; cues: Cue[] | null }> {
+  const narrated = path.replace(/\.mp4$/, `.${lang}.mp4`);
+  try {
+    const [url, cuesUrl] = await Promise.all([signedVideoUrl(narrated), signedVideoUrl(narrated.replace(/\.mp4$/, ".json"))]);
+    const { cues } = await (await fetch(cuesUrl)).json();
+    return { url, cues };
+  } catch {
+    return { url: await signedVideoUrl(path), cues: null };
+  }
+}
+// Une vidéo d'exercice = la démonstration « <nom>.mp4 » et ses versions commentées « <nom>.<langue>.mp4 / .json ».
+const mediaFiles = async (path: string) => {
+  const dir = path.slice(0, path.lastIndexOf("/")), stem = path.slice(dir.length + 1).replace(/\.mp4$/, "");
+  const { data, error } = await supabase.storage.from("videos").list(dir, { limit: 1000, search: stem });
   if (error) throw new Error(error.message);
+  return { dir, names: data.map((f) => f.name).filter((n) => n.startsWith(`${stem}.`)) };
+};
+/** Valide une vidéo brouillon : ses fichiers quittent « drafts/ » et deviennent visibles des clients. */
+export const approveExerciseMedia = async (exerciseId: string, path: string) => {
+  const { dir, names } = await mediaFiles(path);
+  const toDir = dir.slice(DRAFT_PREFIX.length);
+  await supabase.storage.from("videos").remove(names.map((n) => `${toDir}/${n}`)); // remplace une éventuelle version précédente
+  for (const n of names) {
+    const { error } = await supabase.storage.from("videos").move(`${dir}/${n}`, `${toDir}/${n}`);
+    if (error) throw new Error(error.message);
+  }
+  const to = path.slice(DRAFT_PREFIX.length);
   unwrap(await supabase.from("exercises").update({ media_path: to }).eq("id", exerciseId));
   return to;
 };
 export const removeExerciseMedia = async (exerciseId: string, path: string) => {
+  const { dir, names } = await mediaFiles(path);
   unwrap(await supabase.from("exercises").update({ media_path: null }).eq("id", exerciseId));
-  await supabase.storage.from("videos").remove([path]);
+  await supabase.storage.from("videos").remove(names.map((n) => `${dir}/${n}`));
 };
 export type VideoExercise = { position: number; sets: number | null; reps: string | null; exercise: Pick<Exercise, "id" | "name" | "level"> };
 export type HistoryRow = {

@@ -204,7 +204,7 @@ export default function AdminEdit() {
               <Text style={s.levelTitle}>{t("demoVideo")}</Text>
               {form.media_path ? (
                 <>
-                  <VideoPlayer path={form.media_path} loop />
+                  <VideoPlayer path={form.media_path} />
                   <Text style={isDraftMedia(form.media_path) ? s.mediaDraft : s.mediaOk} testID="admin-media-status">
                     {t(isDraftMedia(form.media_path) ? "videoDraft" : "videoApproved")}
                   </Text>
