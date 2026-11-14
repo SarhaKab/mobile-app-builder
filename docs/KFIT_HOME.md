@@ -65,3 +65,17 @@ where id = (select id from auth.users where email = 'adresse@exemple.com');
   si la langue n'existe pas. Valider ou retirer une vidéo traite tous ses fichiers.
 - Limites : c'est une voix off, la personne à l'image ne parle pas ; voix entraînées sur l'anglais (accent possible en français
   et en espagnol) ; les séances de programme n'ont pas encore de vidéo ni de commentaire.
+
+## Vidéos guidées par niveau, en temps réel (14/11/2026 — remplace les « vidéos commentées »)
+
+- Une vidéo par exercice, par niveau et par langue (9 par exercice) : `<nom>.<niveau>.<langue>.mp4` + `.json`
+  (sous-titres et segments travail / repos). Scripts : `backend/scripts/generate_level_clips.py` (Fal.ai : démonstration
+  de la variante débutant / avancé, musique de fond `assets/music-fitness.mp3`) puis `build_guided_videos.py`
+  (voix dynamique OpenAI TTS, musique, montage ffmpeg). L'ancien `narrate_exercise_videos.py` ne sert plus que de bibliothèque.
+- Déroulé : présentation, plan du niveau, consignes étape par étape, puis chaque série en temps réel
+  (répétitions × 3 s, ou la durée indiquée) suivie de son repos ; pendant le repos la voix rappelle une consigne pour la
+  série suivante et annonce la reprise. Sous-titres et comptes à rebours incrustés dans l'image (plein écran).
+- Application : `VideoPlayer` charge la vidéo du niveau choisi dans la fiche et de la langue du compte ; minuteur interactif
+  sous la vidéo (temps restant de la série ou du repos, « +15 s », « Passer »), sous-titres repris sous la vidéo.
+- Limites : l'image est une boucle de 8 s de la variante du niveau (elle n'illustre pas chaque consigne une à une) ;
+  9 vidéos de 4 à 9 minutes par exercice ≈ 80 Mo par exercice — prévoir l'offre de stockage Supabase pour 38 exercices (≈ 3 Go).

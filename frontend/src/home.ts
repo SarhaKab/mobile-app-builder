@@ -37,18 +37,23 @@ export const signedVideoUrl = async (path: string) => {
   return data.signedUrl;
 };
 export type Cue = { start: number; end: number; text: string };
-/** Vidéo à lire pour une langue : la version commentée (voix + sous-titres) si elle existe, sinon la démonstration muette. */
-export async function loadMedia(path: string, lang: Lang): Promise<{ url: string; cues: Cue[] | null }> {
-  const narrated = path.replace(/\.mp4$/, `.${lang}.mp4`);
+export type Segment = { type: "work" | "rest"; set: number; sets: number; start: number; end: number };
+export type Media = { url: string; cues: Cue[] | null; segments: Segment[] };
+/**
+ * Vidéo à lire : la version guidée du niveau et de la langue demandés (voix, musique, sous-titres, séries et repos
+ * en temps réel) si elle existe, sinon la démonstration muette.
+ */
+export async function loadMedia(path: string, lang: Lang, level?: Level | null): Promise<Media> {
+  const guided = path.replace(/\.mp4$/, `.${level ?? "intermediate"}.${lang}.mp4`);
   try {
-    const [url, cuesUrl] = await Promise.all([signedVideoUrl(narrated), signedVideoUrl(narrated.replace(/\.mp4$/, ".json"))]);
-    const { cues } = await (await fetch(cuesUrl)).json();
-    return { url, cues };
+    const [url, metaUrl] = await Promise.all([signedVideoUrl(guided), signedVideoUrl(guided.replace(/\.mp4$/, ".json"))]);
+    const { cues, segments } = await (await fetch(metaUrl)).json();
+    return { url, cues, segments: segments ?? [] };
   } catch {
-    return { url: await signedVideoUrl(path), cues: null };
+    return { url: await signedVideoUrl(path), cues: null, segments: [] };
   }
 }
-// Une vidéo d'exercice = la démonstration « <nom>.mp4 » et ses versions commentées « <nom>.<langue>.mp4 / .json ».
+// Une vidéo d'exercice = la démonstration « <nom>.mp4 » et ses variantes « <nom>.<niveau>[.<langue>].mp4 / .json ».
 const mediaFiles = async (path: string) => {
   const dir = path.slice(0, path.lastIndexOf("/")), stem = path.slice(dir.length + 1).replace(/\.mp4$/, "");
   const { data, error } = await supabase.storage.from("videos").list(dir, { limit: 1000, search: stem });
