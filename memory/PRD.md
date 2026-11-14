@@ -15,3 +15,10 @@ User choices: Programs + AI Nutrition + Progress + AI Coach + Tulum coaching boo
 - P0: full automated test run (stopped: credits)
 - P1: refresh tokens, password reset, real brand fonts/logo assets, app icon
 - P2: payments for coaching sessions, community feed, workout timer
+
+## Update 2026-11 (branch kfit-supabase + security)
+- Auth is now Supabase Auth only (email + password, confirmation required); Google button removed. Supabase schema/RLS in /supabase, docs in docs/AUTH.md.
+- Backend accepts ONLY Supabase access tokens; legacy /api/auth/register|login|session and legacy JWT/session tokens removed (audit SEC-001).
+- AI limits per user (audit SEC-002): coach 5/min + 50/day, nutrition 2/min + 5/day (AI_LIMITS in server.py, Mongo `ai_usage`), 429 with translated message.
+- Tested: sign-in, session persistence, logout, all main screens, real Supabase token on backend (iterations 1-2).
+- Open: audit minor points (CORS *, .gitignore .env, unused python-jose), SMTP provider, password reset, Google/Apple via Supabase, confirm-email screen untested.

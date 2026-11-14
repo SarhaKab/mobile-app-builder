@@ -1,0 +1,50 @@
+{
+  "summary": "SEC-001 (legacy auth removal) and SEC-002 (AI rate limits) verified end-to-end. BACKEND (35/35 pytest green): new suite /app/backend/tests/test_sec_001_002.py (30 tests, exits 0 in ~7s) covers (a) legacy routes /api/auth/register, /api/auth/login, /api/auth/session — every GET and POST returns 404 (never 200/201/422), and a POST to /auth/register with a TEST_ e-mail never produced a Mongo users doc; (b) a legacy HS256 JWT forged with JWT_SECRET (iss='kfit-api', aud='kfit-app', valid sub/exp) is rejected 401 on /auth/me, /dashboard, /programs; (c) a synthetic user_sessions row with session_token='legacy-test-token' is rejected 401 (then deleted); (d) missing / garbage / wrong-scheme (Basic) Authorization headers all return 401 in <10s; (e) regression with a real Supabase access_token: /api/auth/me returns the expected e-mail and stable user_id across two calls, /dashboard, /programs, /programs/strength-balance, /progress, /bookings, /nutrition/plan (GET), /coach/messages all return 200, /api/auth/logout returns 200; (f) SEC-002 — seeding ai_usage key '<uid>:coach:<YYYYMMDD>' count=50 triggers 429 on POST /api/coach/chat with detail exactly 'Limite quotidienne atteinte. Reviens demain.' and NO new coach_messages doc; seeding the minute bucket with count=5 triggers 429 'Trop de demandes. Patiente une minute puis réessaie.'; seeding nutrition day bucket count=5 triggers the FR daily limit on POST /api/nutrition/plan; another user_id's exhausted key does not touch the test user's key; (g) happy path — one real POST /api/coach/chat ('Bonjour') streams SSE with delta events then [DONE] and leaves ai_usage '<uid>:coach:<day>' with count==1. The legacy-era file /app/backend/tests/test_kfit_backend.py and the legacy-demo-login section of /app/backend/tests/test_auth_supabase_transition.py were OBSOLETE by design (legacy endpoints removed) and have been deleted so the suite reflects the new contract; /app/backend/tests/test_supabase_real_token.py kept and still passes (5/5). FRONTEND (mobile 390x844, web preview): login via welcome-login-button + login-submit-button succeeded; home-screen, training-screen, coach-screen, profile-screen all render after navigation; after seeding the coach day bucket to 50 for the test user and sending 'Bonjour', the coach tab shows the exact translated message 'Limite quotidienne atteinte. Reviens demain.' (NOT the generic 'Une erreur est survenue'), no empty assistant bubble remained, the app did not crash (coach-screen still visible); page reload kept the session (lands back on /coach, not /welcome); profile-logout-button redirects to /welcome as expected. Only ONE real AI call was spent in this run (the backend happy-path test); the UI 429 test spent zero AI calls. Cleanup: all seeded ai_usage docs for the test user were deleted at the end — final Mongo scan reports 0 ai_usage rows for the test user and 0 user_sessions rows with session_token='legacy-test-token'. No profile field, booking, or password was altered on the real account.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {
+        "component": "expo-router tabs",
+        "issue": "Deprecation warning carried over from iteration 2: '`expo-router/unstable-native-tabs` is deprecated. Use `expo-router/native-tabs` instead.' Reference: /app/frontend/app/(tabs)/_layout.tsx (import of 'expo-router/unstable-native-tabs'). Not blocking SEC fixes, but still worth migrating."
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_sec_001_002.py",
+    "/app/backend/tests/test_supabase_real_token.py",
+    "/app/test_reports/pytest/sec_001_002.xml",
+    "/app/test_reports/pytest/supabase_real_token.xml"
+  ],
+  "action_items": [
+    "Optional: replace the deprecated 'expo-router/unstable-native-tabs' import in /app/frontend/app/(tabs)/_layout.tsx with 'expo-router/native-tabs' (cosmetic warning carried from iteration 2).",
+    "No SEC-001 or SEC-002 defects were found — no backend/frontend code change is required for the security fixes."
+  ],
+  "critical_code_review_comments": [
+    "backend/server.py ai_quota() (lines 362-377): correctly increments two windows (minute + day) with a single $inc/$setOnInsert atomic upsert per window and raises 429 BEFORE any LLM call; both /api/coach/chat (line 421) and /api/nutrition/plan (line 382) call it first — verified by seeding counters and observing 0 new coach_messages / plan docs on 429. TTL index 'ttl' on ai_usage.expires_at ensures counters self-expire; seeded docs had explicit expires_at.",
+    "backend/server.py current_user() (lines 194-203): only path to a user is supabase_user_id() -> Supabase /auth/v1/user; local JWT verification is completely absent, so forged HS256 tokens with the correct JWT_SECRET are rejected 401 (Supabase answers 401 to unknown token, which short-circuits to our 401). Confirmed empirically (<1s response).",
+    "backend/server.py supabase_user_id() legacy-link path (lines 170-174): legacy e-mail linking still requires email_confirmed_at before merging — prevents the pre-registration takeover described by SEC-001.",
+    "frontend/src/api.ts streamChat(): on HTTP 429 throws Error with .limited=true and .message=server detail; frontend/app/(tabs)/coach.tsx:38 correctly surfaces e.message when e.limited is truthy — proven live by the seeded-quota UI test (exact FR message rendered).",
+    "frontend/app/(tabs)/coach.tsx send() (line 39): filters out the empty assistant bubble when the stream fails — 0 empty bubbles remain after 429 (confirmed by DOM query).",
+    "Suggestion (non-blocking): /api/coach/chat currently inserts the user message BEFORE ai_quota() would reject on a stream-opening retry; but since ai_quota() is called at line 421 (before the message insert at line 431), this is fine today. Just note that any future reordering must keep ai_quota ahead of DB writes."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_sec_001_002.py (new — 30 pytest cases for SEC-001 legacy removal, bad auth headers, legacy-JWT rejection, real-Supabase regression, SEC-002 rate limits and one real happy-path streaming call)",
+    "/app/backend/tests/test_kfit_backend.py (deleted — obsolete legacy demo-login suite)",
+    "/app/backend/tests/test_auth_supabase_transition.py (deleted — superseded by test_sec_001_002.py which already covers the no-token / garbage-token contract)"
+  ],
+  "success_rate": {
+    "backend": "100% (35/35: 30 SEC-001+SEC-002 + 5 real-token regression)",
+    "frontend": "100% on the review-requested flows (login, 4 tabs, coach SEC-002 429 UX, session persistence, logout)"
+  },
+  "seed_data_creation": "Temporary. Seeded in Mongo during tests: ai_usage counters (coach:minute, coach:day, nutrition:day for the test user; plus one 'other_user' key for the per-user isolation test) and one user_sessions doc {session_token:'legacy-test-token', ...}. Every seeded doc was deleted at the end of its test (fixture teardown) AND a final sweep script re-checked: 0 ai_usage rows left for the test user and 0 user_sessions rows with session_token='legacy-test-token'. No profile, bookings, nutrition plan content, or coach_messages for the test user were tampered with (the one real coach/chat happy-path call did persist the normal user+assistant bubbles — expected behaviour, not cleaned since it is real user history).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Rerun by setting EXPO_PUBLIC_BACKEND_URL + shell env KFIT_TEST_EMAIL / KFIT_TEST_PASSWORD and executing: pytest /app/backend/tests/test_sec_001_002.py /app/backend/tests/test_supabase_real_token.py -v. The UI SEC-002 check needs the ai_usage day counter pre-seeded for the test user (snippet in /app/backend/tests/test_sec_001_002.py::TestSEC002RateLimits._seed). Maximum budget respected: exactly 1 real AI call this iteration, 0 real nutrition calls, 0 Supabase sign-ups.",
+  "rca_of_issue": "No bugs. SEC-001 fix is correctly enforced at two layers (route removal and token-source replacement) — legacy routes are genuinely unmounted (404) and the auth dependency now has a single Supabase-only code path, so any legacy JWT or session-doc shortcut is dead by construction. SEC-002 fix enforces both a minute and a day window per (user_id, kind) via an atomic upsert in ai_usage with TTL expiry; the limit is checked before the LLM call and before any message-persistence write, so a 429 cannot leak partial state. Residual expo-router/unstable-native-tabs deprecation (reported in iteration 2) is cosmetic and unrelated to the SEC work."
+}

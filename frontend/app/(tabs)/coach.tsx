@@ -34,8 +34,8 @@ export default function Coach() {
     setMsgs((x) => [...x, { id: `u${Date.now()}`, role: "user", content: m }, { id: aid, role: "assistant", content: "" }]);
     try {
       await streamChat(m, (d) => setMsgs((x) => x.map((y) => (y.id === aid ? { ...y, content: y.content + d } : y))));
-    } catch {
-      setErr(t("error"));
+    } catch (e: any) {
+      setErr(e?.limited ? e.message : t("error"));
       setMsgs((x) => x.filter((y) => y.id !== aid || y.content));
     } finally {
       setBusy(false);

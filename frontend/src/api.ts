@@ -36,7 +36,12 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
 export async function streamChat(message: string, onDelta: (s: string) => void) {
   const f: typeof expoFetch = Platform.OS === "web" ? (globalThis.fetch as any) : expoFetch;
   const res = await f(`${API_URL}/coach/chat`, { method: "POST", headers: await headers(), body: JSON.stringify({ message }) });
-  if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) {
+    // 429 : plafond d'utilisation de l'IA atteint — le serveur fournit un message traduit.
+    const detail = res.status === 429 ? (await res.json().catch(() => ({})))?.detail : undefined;
+    throw Object.assign(new Error(detail ?? `HTTP ${res.status}`), { limited: !!detail });
+  }
+  if (!res.body) throw new Error(`HTTP ${res.status}`);
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buf = "";

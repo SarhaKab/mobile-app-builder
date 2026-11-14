@@ -10,15 +10,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal, Optional
 
-import bcrypt
 import httpx
-import jwt
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorClient
-from pydantic import BaseModel, EmailStr, Field
-from pymongo import ASCENDING, DESCENDING, IndexModel
+from pydantic import BaseModel, Field
+from pymongo import ASCENDING, DESCENDING, IndexModel, ReturnDocument
 from pymongo.errors import DuplicateKeyError
 from starlette.middleware.cors import CORSMiddleware
 
@@ -29,14 +27,11 @@ from emergentintegrations.llm.chat import LlmChat, StreamDone, TextDelta, UserMe
 
 client = AsyncIOMotorClient(os.environ["MONGO_URL"])
 db = client[os.environ["DB_NAME"]]
-JWT_SECRET = os.environ["JWT_SECRET"]
 LLM_KEY = os.environ["EMERGENT_LLM_KEY"]
-JWT_ALG = "HS256"
-JWT_ISS, JWT_AUD = "kfit-api", "kfit-app"
-TOKEN_DAYS = 7
-MAX_FAILED, LOCK_MINUTES = 5, 15
 MODEL = ("anthropic", "claude-sonnet-5-5")
-# Supabase Auth (transition) : l'application s'authentifie désormais auprès de Supabase.
+# Plafonds d'appels à l'IA par utilisateur : (par minute, par jour UTC).
+AI_LIMITS = {"coach": (5, 50), "nutrition": (2, 5)}
+# Supabase Auth : seule façon de s'authentifier. Le serveur n'accepte que les jetons Supabase.
 # Ces deux valeurs sont publiques par conception (URL + clé « publishable »).
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://soaivvemysgzmjntmkta.supabase.co").rstrip("/")
 SUPABASE_KEY = os.environ.get("SUPABASE_PUBLISHABLE_KEY", "sb_publishable_MgI2Me489KLXdfeANIVnkQ_GKMdHeRy")
@@ -47,12 +42,8 @@ INDEXES: dict[str, list[IndexModel]] = {
     "users": [IndexModel([("email", ASCENDING)], name="email", unique=True),
               IndexModel([("user_id", ASCENDING)], name="user_id", unique=True),
               IndexModel([("supabase_id", ASCENDING)], name="supabase_id", unique=True, sparse=True)],
-    "user_sessions": [IndexModel([("session_token", ASCENDING)], name="token", unique=True),
-                      IndexModel([("user_id", ASCENDING)], name="user_id"),
-                      IndexModel([("expires_at", ASCENDING)], name="ttl", expireAfterSeconds=0)],
-    "revoked_tokens": [IndexModel([("jti", ASCENDING)], name="jti", unique=True),
-                       IndexModel([("expires_at", ASCENDING)], name="ttl", expireAfterSeconds=0)],
-    "login_attempts": [IndexModel([("email", ASCENDING)], name="email", unique=True)],
+    "ai_usage": [IndexModel([("key", ASCENDING)], name="key", unique=True),
+                 IndexModel([("expires_at", ASCENDING)], name="ttl", expireAfterSeconds=0)],
     "progress": [IndexModel([("user_id", ASCENDING), ("date", DESCENDING)], name="user_date")],
     "completions": [IndexModel([("user_id", ASCENDING), ("program_id", ASCENDING), ("workout_index", ASCENDING)],
                                name="uniq", unique=True)],
@@ -88,28 +79,8 @@ def now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def aware(dt: datetime) -> datetime:
-    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-
-
 # ---------------------------------------------------------------- models
 Lang = Literal["en", "es", "fr"]
-
-
-class RegisterIn(BaseModel):
-    email: EmailStr
-    password: str = Field(min_length=8, max_length=128)
-    name: str = Field(min_length=1, max_length=60)
-    lang: Lang = "fr"
-
-
-class LoginIn(BaseModel):
-    email: EmailStr
-    password: str = Field(min_length=1, max_length=128)
-
-
-class SessionIn(BaseModel):
-    session_id: str = Field(min_length=1, max_length=512)
 
 
 class ProfileIn(BaseModel):
@@ -127,11 +98,6 @@ class PublicUser(BaseModel):
     goal: Optional[str] = None
     program_id: Optional[str] = None
     auth_provider: str = "email"
-
-
-class AuthOut(BaseModel):
-    token: str
-    user: PublicUser
 
 
 class ProgressIn(BaseModel):
@@ -163,12 +129,6 @@ class BookingIn(BaseModel):
 # ---------------------------------------------------------------- auth helpers
 def public(u: dict) -> PublicUser:
     return PublicUser(**{k: u.get(k) for k in PublicUser.model_fields if u.get(k) is not None})
-
-
-def make_jwt(user_id: str) -> str:
-    t = now()
-    return jwt.encode({"sub": user_id, "iss": JWT_ISS, "aud": JWT_AUD, "iat": t,
-                       "exp": t + timedelta(days=TOKEN_DAYS), "jti": uuid.uuid4().hex}, JWT_SECRET, algorithm=JWT_ALG)
 
 
 def bearer(request: Request) -> str:
@@ -232,21 +192,11 @@ async def supabase_user_id(token: str) -> Optional[str]:
 
 
 async def current_user(request: Request) -> dict:
-    token = bearer(request)
-    user_id = None
-    try:
-        claims = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG], issuer=JWT_ISS, audience=JWT_AUD)
-        if await db.revoked_tokens.find_one({"jti": claims["jti"]}):
-            raise HTTPException(401, "Session revoked")
-        user_id = claims["sub"]
-    except jwt.InvalidTokenError:
-        s = await db.user_sessions.find_one({"session_token": token}, {"_id": 0})
-        if s and aware(s["expires_at"]) >= now():
-            user_id = s["user_id"]
-        else:
-            user_id = await supabase_user_id(token)
-            if not user_id:
-                raise HTTPException(401, "Invalid or expired session")
+    # Seuls les jetons Supabase sont acceptés : l'inscription et la connexion par e-mail
+    # se font exclusivement auprès de Supabase (adresse confirmée obligatoire).
+    user_id = await supabase_user_id(bearer(request))
+    if not user_id:
+        raise HTTPException(401, "Invalid or expired session")
     user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     if not user:
         raise HTTPException(401, "User not found")
@@ -254,64 +204,6 @@ async def current_user(request: Request) -> dict:
 
 
 # ---------------------------------------------------------------- auth routes
-@api.post("/auth/register", response_model=AuthOut, status_code=201)
-async def register(body: RegisterIn):
-    email = body.email.lower()
-    doc = {"user_id": f"user_{uuid.uuid4().hex[:12]}", "email": email, "name": body.name.strip(),
-           "lang": body.lang, "auth_provider": "email", "created_at": now(),
-           "password_hash": bcrypt.hashpw(body.password.encode(), bcrypt.gensalt(12)).decode()}
-    try:
-        await db.users.insert_one(doc)
-    except DuplicateKeyError:
-        raise HTTPException(409, "Email already registered")
-    return AuthOut(token=make_jwt(doc["user_id"]), user=public(doc))
-
-
-DUMMY_HASH = bcrypt.hashpw(b"dummy-password", bcrypt.gensalt(12))
-
-
-@api.post("/auth/login", response_model=AuthOut)
-async def login(body: LoginIn):
-    email = body.email.lower()
-    att = await db.login_attempts.find_one({"email": email}, {"_id": 0})
-    if att and att.get("locked_until") and aware(att["locked_until"]) > now():
-        raise HTTPException(429, "Too many attempts. Try again later.")
-    user = await db.users.find_one({"email": email}, {"_id": 0})
-    hashed = (user or {}).get("password_hash")
-    ok = bcrypt.checkpw(body.password.encode(), hashed.encode() if hashed else DUMMY_HASH) and bool(hashed)
-    if not ok:
-        fails = (att or {}).get("count", 0) + 1
-        upd = {"count": fails, "updated_at": now()}
-        if fails >= MAX_FAILED:
-            upd = {"count": 0, "locked_until": now() + timedelta(minutes=LOCK_MINUTES)}
-        await db.login_attempts.update_one({"email": email}, {"$set": upd}, upsert=True)
-        raise HTTPException(401, "Invalid email or password")
-    await db.login_attempts.delete_one({"email": email})
-    return AuthOut(token=make_jwt(user["user_id"]), user=public(user))
-
-
-@api.post("/auth/session", response_model=AuthOut)
-async def google_session(body: SessionIn):
-    async with httpx.AsyncClient(timeout=15) as c:
-        r = await c.get("https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data",
-                        headers={"X-Session-ID": body.session_id})
-    if r.status_code != 200:
-        raise HTTPException(401, "Invalid session")
-    data = r.json()
-    email = data["email"].lower()
-    user = await db.users.find_one({"email": email}, {"_id": 0})
-    if user:
-        await db.users.update_one({"email": email}, {"$set": {"picture": data.get("picture")}})
-        user["picture"] = data.get("picture")
-    else:
-        user = {"user_id": f"user_{uuid.uuid4().hex[:12]}", "email": email, "name": data.get("name") or email,
-                "picture": data.get("picture"), "lang": "fr", "auth_provider": "google", "created_at": now()}
-        await db.users.insert_one(dict(user))
-    await db.user_sessions.insert_one({"session_token": data["session_token"], "user_id": user["user_id"],
-                                       "expires_at": now() + timedelta(days=7), "created_at": now()})
-    return AuthOut(token=data["session_token"], user=public(user))
-
-
 @api.get("/auth/me", response_model=PublicUser)
 async def me(user: dict = Depends(current_user)):
     return public(user)
@@ -319,14 +211,7 @@ async def me(user: dict = Depends(current_user)):
 
 @api.post("/auth/logout")
 async def logout(request: Request, user: dict = Depends(current_user)):
-    token = bearer(request)
-    try:
-        claims = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG], issuer=JWT_ISS, audience=JWT_AUD)
-        await db.revoked_tokens.update_one({"jti": claims["jti"]},
-                                           {"$set": {"expires_at": datetime.fromtimestamp(claims["exp"], timezone.utc)}},
-                                           upsert=True)
-    except jwt.InvalidTokenError:
-        await db.user_sessions.delete_one({"session_token": token})
+    _supabase_cache.pop(bearer(request), None)
     return {"ok": True}
 
 
@@ -464,8 +349,37 @@ def llm(session: str, system: str) -> LlmChat:
     return LlmChat(api_key=LLM_KEY, session_id=session, system_message=system).with_model(*MODEL)
 
 
+AI_LIMIT_MSG = {
+    "minute": {"en": "Too many requests. Wait a minute and try again.",
+               "es": "Demasiadas solicitudes. Espera un minuto e inténtalo de nuevo.",
+               "fr": "Trop de demandes. Patiente une minute puis réessaie."},
+    "day": {"en": "Daily limit reached. Come back tomorrow.",
+            "es": "Límite diario alcanzado. Vuelve mañana.",
+            "fr": "Limite quotidienne atteinte. Reviens demain."},
+}
+
+
+async def ai_quota(user: dict, kind: str) -> None:
+    """Compte un appel à l'IA et refuse (429) au-delà du plafond par minute ou par jour."""
+    per_minute, per_day = AI_LIMITS[kind]
+    t = now()
+    windows = (("minute", t.strftime("%Y%m%d%H%M"), timedelta(minutes=2), per_minute),
+               ("day", t.strftime("%Y%m%d"), timedelta(days=2), per_day))
+    for label, bucket, keep, limit in windows:
+        key = f"{user['user_id']}:{kind}:{bucket}"
+        update = {"$inc": {"count": 1}, "$setOnInsert": {"expires_at": t + keep}}
+        try:
+            doc = await db.ai_usage.find_one_and_update({"key": key}, update, upsert=True,
+                                                        return_document=ReturnDocument.AFTER)
+        except DuplicateKeyError:  # deux premières requêtes simultanées sur la même fenêtre
+            doc = await db.ai_usage.find_one_and_update({"key": key}, update, return_document=ReturnDocument.AFTER)
+        if doc["count"] > limit:
+            raise HTTPException(429, AI_LIMIT_MSG[label].get(user.get("lang"), AI_LIMIT_MSG[label]["fr"]))
+
+
 @api.post("/nutrition/plan")
 async def gen_plan(body: NutritionIn, user: dict = Depends(current_user)):
+    await ai_quota(user, "nutrition")
     lang = LANG_NAME.get(user.get("lang", "fr"), "French")
     system = ("You are KFIT's expert sports nutritionist. Reply ONLY with valid minified JSON, no markdown. "
               f"All text values must be in {lang}.")
@@ -504,6 +418,7 @@ async def clear_messages(user: dict = Depends(current_user)):
 
 @api.post("/coach/chat")
 async def coach_chat(body: ChatIn, user: dict = Depends(current_user)):
+    await ai_quota(user, "coach")
     uid = user["user_id"]
     history = await db.coach_messages.find({"user_id": uid}, {"_id": 0}).sort("created_at", -1).limit(12).to_list(12)
     transcript = "\n".join(f"{m['role'].upper()}: {m['content']}" for m in reversed(history))
