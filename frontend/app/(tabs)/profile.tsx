@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/src/auth";
 import { Button, Chips, IconName, SectionTitle } from "@/src/components/ui";
-import { Lang, useI18n } from "@/src/i18n";
+import { Lang, TKey, useI18n } from "@/src/i18n";
 import { usesNativeTabs } from "@/src/navigation";
 import { makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
@@ -23,7 +23,10 @@ export default function Profile() {
   if (!user) return null;
 
   const links: [IconName, string, string][] = [
+    ["person-outline", t("contactTitle"), "/contact"], ["time-outline", t("workoutHistory"), "/history"],
     ["calendar-outline", t("myBookings"), "/booking"], ["nutrition-outline", t("nutritionTitle"), "/nutrition"], ["stats-chart-outline", t("progressTitle"), "/progress"],
+    // L'espace d'administration n'est proposé qu'au rôle « admin » (la base applique la même règle).
+    ...(user.role === "admin" ? [["settings-outline", t("adminContent"), "/admin"] as [IconName, string, string]] : []),
   ];
 
   return (
@@ -36,6 +39,7 @@ export default function Profile() {
           <View style={{ flex: 1 }}>
             <Text style={s.name} testID="profile-name">{user.name}</Text>
             <Text style={s.email} testID="profile-email">{user.email}</Text>
+            <Text style={s.role} testID="profile-role">{t(`role_${user.role}` as TKey)}</Text>
           </View>
         </View>
 
@@ -76,6 +80,7 @@ const useStyles = makeStyles((c) => ({
   initial: { color: c.onBrandSecondary, fontSize: 26, fontWeight: "700" },
   name: { color: c.onSurface, fontSize: 22, fontWeight: "700" },
   email: { color: c.muted, fontSize: 14 },
+  role: { alignSelf: "flex-start", marginTop: 6, color: c.onBrandTertiary, backgroundColor: c.brandTertiary, fontSize: 11, fontWeight: "600", letterSpacing: 1, paddingHorizontal: 10, paddingVertical: 3, borderRadius: radius.pill, overflow: "hidden" },
   group: { borderRadius: radius.md, backgroundColor: c.surfaceSecondary, overflow: "hidden" },
   row: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingHorizontal: spacing.md, minHeight: 56 },
   rowText: { flex: 1, color: c.onSurface, fontSize: 15 },

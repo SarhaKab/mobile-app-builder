@@ -10,6 +10,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { Emblem, IconName, SectionTitle, Wordmark } from "@/src/components/ui";
+import { coverUrl, homeSummary, loc, minutesOf } from "@/src/home";
 import { TKey, useI18n } from "@/src/i18n";
 import { usesNativeTabs } from "@/src/navigation";
 import { makeStyles, radius, spacing, useTheme } from "@/src/theme";
@@ -19,25 +20,31 @@ const TULUM_IMG = "https://images.unsplash.com/photo-1504730655501-24c39ac53f0e?
 export default function Home() {
   const s = useStyles();
   const { colors } = useTheme();
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const { user } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [data, setData] = useState<any>(null);
+  const [home, setHome] = useState<Awaited<ReturnType<typeof homeSummary>> | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const bottomChrome = usesNativeTabs ? insets.bottom : 0;
 
+  // Programme suivi et séances : Supabase (KFIT HOME). Poids, calories, réservation : ancien serveur.
   const load = useCallback(async () => {
-    try { setData(await api("/dashboard")); } catch {}
-  }, []);
+    if (!user) return;
+    await Promise.all([
+      api("/dashboard").then(setData).catch(() => {}),
+      homeSummary(user.user_id).then(setHome).catch(() => {}),
+    ]);
+  }, [user]);
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const tiles: [IconName, TKey, string][] = [
     ["barbell-outline", "workouts", "/(tabs)/training"], ["nutrition-outline", "nutrition", "/nutrition"],
     ["stats-chart-outline", "progress", "/progress"], ["calendar-outline", "coaching", "/booking"],
   ];
-  const p = data?.program;
-  const pct = p ? Math.round((p.done / p.total) * 100) : 0;
+  const p = home?.program;
+  const pct = p?.total ? Math.round((p.done / p.total) * 100) : 0;
 
   return (
     <View style={s.root} testID="home-screen">
@@ -72,13 +79,13 @@ export default function Home() {
 
         <Pressable testID="home-program-card" style={s.program}
           onPress={() => router.push(p ? { pathname: "/program/[id]", params: { id: p.id } } : "/(tabs)/training")}>
-          {p && <Image source={p.image} style={s.programImg} contentFit="cover" />}
+          {p && coverUrl(p.cover_path) && <Image source={coverUrl(p.cover_path)} style={s.programImg} contentFit="cover" />}
           <View style={{ flex: 1, gap: 6 }}>
             <Text style={s.small}>{t("yourProgram")}</Text>
-            <Text style={s.programTitle}>{p ? p.title : t("noProgram")}</Text>
+            <Text style={s.programTitle}>{p ? loc(p.title, lang) : t("noProgram")}</Text>
             {p ? (
               <>
-                <Text style={s.small}>{p.next ? `${t("nextWorkout")} · ${p.next.name} · ${p.next.minutes} ${t("minutes")}` : t("done")}</Text>
+                <Text style={s.small}>{p.next ? [t("nextWorkout"), loc(p.next.title, lang), minutesOf(p.next) ? `${minutesOf(p.next)} ${t("minutes")}` : null].filter(Boolean).join(" · ") : t("done")}</Text>
                 <View style={s.barRow}>
                   <View style={s.bar}><View style={[s.barFill, { width: `${pct}%` }]} /></View>
                   <Text style={s.pct} testID="home-program-percent">{pct}%</Text>
@@ -91,7 +98,7 @@ export default function Home() {
         <SectionTitle>{t("stats")}</SectionTitle>
         <View style={s.stats}>
           {[
-            [data?.workouts ?? 0, t("workouts")], [data?.minutes ?? 0, t("minutes")],
+            [home?.workouts ?? 0, t("workouts")], [home?.minutes ?? 0, t("minutes")],
             [data?.weight ? `${data.weight}` : "—", t("kg")], [data?.calories ?? "—", t("kcal")],
           ].map(([v, l], i) => (
             <View key={i} style={s.stat} testID={`home-stat-${i}`}>

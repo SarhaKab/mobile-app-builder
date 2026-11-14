@@ -22,3 +22,10 @@ User choices: Programs + AI Nutrition + Progress + AI Coach + Tulum coaching boo
 - AI limits per user (audit SEC-002): coach 5/min + 50/day, nutrition 2/min + 5/day (AI_LIMITS in server.py, Mongo `ai_usage`), 429 with translated message.
 - Tested: sign-in, session persistence, logout, all main screens, real Supabase token on backend (iterations 1-2).
 - Open: audit minor points (CORS *, .gitignore .env, unused python-jose), SMTP provider, password reset, Google/Apple via Supabase, confirm-email screen untested.
+
+## Update 2026-11 (cahier des charges global — phase 1 fin + phase 2 KFIT HOME)
+- Spec: /tmp was source; summary: 4 universes (HOME, ON DEMAND, AI, CLUB flag-off), client/coach/admin spaces, payments, MX legal constraints. Order: P1 foundations, P2 KFIT HOME, P3 ON DEMAND, P4 AI, P5 admin/compliance, P6 launch.
+- Built (frontend on Supabase): catalogue (programs/videos/exercises, filters, favorites), detail screens, enroll, complete session, history, home summary, contact details (phone/address in client_profiles.preferences.contact), role badge, admin content CRUD + sample loader. Docs: docs/KFIT_HOME.md.
+- Tested so far: only empty catalogue + contact save (self smoke test). Content/admin flows UNTESTED until an admin account exists (Supabase catalogue empty).
+- Next: admin media upload + video player; migrate progress/nutrition/coach/booking to Supabase and delete legacy /api/programs*; Phase 3 coach space.
+- Code also evolves on GitHub branch kfit-supabase (repo SarhaKab/mobile-app-builder): fetch before each step.

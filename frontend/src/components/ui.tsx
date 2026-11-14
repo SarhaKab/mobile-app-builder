@@ -1,10 +1,12 @@
 import Ionicons from "@react-native-vector-icons/ionicons";
 import { useRouter } from "expo-router";
-import { ReactNode } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleProp, Text, TextInput, TextInputProps, View, ViewStyle } from "react-native";
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { useAuth } from "@/src/auth";
+import { FavType, listFavorites, setFavorite } from "@/src/home";
 import { makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
 export type IconName = React.ComponentProps<typeof Ionicons>["name"];
@@ -61,10 +63,31 @@ export function Field({ label, testID, ...props }: TextInputProps & { label: str
   const s = useStyles();
   const { colors } = useTheme();
   return (
-    <View style={{ gap: 6, flex: props.style ? undefined : undefined }}>
+    <View style={{ gap: 6 }}>
       <Text style={s.label}>{label}</Text>
-      <TextInput testID={testID} placeholderTextColor={colors.muted} style={s.input} {...props} />
+      <TextInput testID={testID} placeholderTextColor={colors.muted} {...props} style={[s.input, props.multiline && s.inputMulti]} />
     </View>
+  );
+}
+
+/** Cœur « favori » d'un contenu KFIT HOME (programme, vidéo, exercice). */
+export function FavoriteButton({ type, id }: { type: FavType; id: string }) {
+  const s = useStyles();
+  const { colors } = useTheme();
+  const { user } = useAuth();
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    if (user) listFavorites(user.user_id, type).then((f) => setOn(f.has(id))).catch(() => {});
+  }, [user, type, id]);
+  const toggle = () => {
+    if (!user) return;
+    setOn(!on);
+    setFavorite(user.user_id, type, id, !on).catch(() => setOn(on));
+  };
+  return (
+    <Pressable testID="favorite-button" onPress={toggle} style={s.iconBtn} hitSlop={8}>
+      <Ionicons name={on ? "heart" : "heart-outline"} size={22} color={on ? colors.brandPrimary : colors.onSurface} />
+    </Pressable>
   );
 }
 
@@ -122,6 +145,7 @@ export const useStyles = makeStyles((c) => ({
   btnText: { fontSize: 16, fontWeight: "600", letterSpacing: 0.3 },
   label: { color: c.onSurfaceTertiary, fontSize: 13, fontWeight: "500", letterSpacing: 0.4 },
   input: { backgroundColor: c.surfaceSecondary, borderWidth: 1, borderColor: c.border, borderRadius: radius.md, color: c.onSurface, paddingHorizontal: spacing.md, height: 52, fontSize: 16 },
+  inputMulti: { height: 110, paddingTop: 12, textAlignVertical: "top" },
   chipRow: { gap: spacing.sm, paddingVertical: 2 },
   chip: { height: 36, flexShrink: 0, paddingHorizontal: spacing.md, borderRadius: radius.pill, borderWidth: 1, borderColor: c.border, backgroundColor: c.surfaceSecondary, justifyContent: "center" },
   chipOn: { backgroundColor: c.brandPrimary, borderColor: c.brandPrimary },
