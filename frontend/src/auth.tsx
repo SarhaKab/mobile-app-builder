@@ -27,7 +27,7 @@ export type RegisterResult = "signed_in" | "confirm_email";
 
 // Codes d'erreur traduits dans i18n (clés authErr_*).
 export type AuthErrorCode = "invalid_credentials" | "email_not_confirmed" | "user_already_exists"
-  | "weak_password" | "rate_limited" | "unknown";
+  | "weak_password" | "rate_limited" | "email_invalid" | "network" | "unknown";
 
 export class AuthError extends Error {
   code: AuthErrorCode;
@@ -43,6 +43,10 @@ function toAuthError(e: any): AuthError {
   if (code === "email_not_confirmed") return new AuthError("email_not_confirmed");
   if (code === "user_already_exists" || code === "email_exists") return new AuthError("user_already_exists");
   if (code === "weak_password") return new AuthError("weak_password");
+  // Adresse refusée par Supabase (domaine inexistant ou de test, format invalide).
+  if (code === "email_address_invalid" || code === "validation_failed") return new AuthError("email_invalid");
+  // Aucune réponse du serveur : seul cas où l'on parle de connexion à l'utilisateur.
+  if (e?.name === "AuthRetryableFetchError" || e?.status === 0) return new AuthError("network");
   if (code.startsWith("over_") || e?.status === 429) return new AuthError("rate_limited");
   return new AuthError("unknown");
 }
