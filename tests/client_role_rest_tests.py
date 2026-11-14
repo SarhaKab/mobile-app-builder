@@ -159,40 +159,88 @@ def test_storage_delete_nonexistent_refused(rest_h, client_token):
     assert r.status_code in (400, 401, 403, 404), f"delete got {r.status_code}"
 
 
-# ---------------------------------------------------------- 4. storage read (RECORD finding)
-def test_storage_read_drafts_allowed(rest_h, client_token):
-    """FINDING 5: the client token CAN read & sign draft video files.
+# ---------------------------------------------------------- 4. storage read drafts REFUSED (iter 9)
+# After migration 0005: client CAN'T read/sign/list anything under drafts/, but can still read non-drafts.
+DRAFT_PATHS = [
+    "drafts/exercises/sample-plank.beginner.fr.mp4",
+    "drafts/exercises/sample-plank.mp4",
+    "drafts/exercises/sample-plank.beginner.fr.json",
+    "drafts/exercises/sample-push-ups.beginner.fr.mp4",
+    "drafts/exercises/sample-goblet-squat.beginner.fr.mp4",
+]
 
-    Report-only; must not fail the suite.
-    """
-    path = "drafts/exercises/sample-plank.beginner.fr.mp4"
-    r_range = requests.get(
+
+@pytest.mark.parametrize("path", DRAFT_PATHS)
+def test_storage_read_drafts_refused(client_token, path):
+    r = requests.get(
         f"{SUPABASE_URL}/storage/v1/object/authenticated/videos/{path}",
         headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {client_token['token']}",
                  "Range": "bytes=0-1023"},
         timeout=15,
     )
-    assert r_range.status_code in (200, 206), f"range GET got {r_range.status_code}"
+    assert r.status_code in (400, 401, 403, 404), f"range GET got {r.status_code}"
+    body = r.text.lower()
+    assert "not found" in body or "unauthor" in body or "forbidden" in body or "error" in body, body[:200]
 
-    r_sign = requests.post(
+
+@pytest.mark.parametrize("path", DRAFT_PATHS[:3])
+def test_storage_sign_drafts_refused(client_token, path):
+    r = requests.post(
         f"{SUPABASE_URL}/storage/v1/object/sign/videos/{path}",
         headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {client_token['token']}",
                  "Content-Type": "application/json"},
         json={"expiresIn": 60},
         timeout=10,
     )
-    assert r_sign.status_code == 200, f"sign got {r_sign.status_code}"
+    assert r.status_code in (400, 401, 403, 404), f"sign got {r.status_code}: {r.text[:120]}"
 
-    r_list = requests.post(
+
+@pytest.mark.parametrize("prefix", ["drafts/exercises/", "drafts/", ""])
+def test_storage_list_drafts_hidden(client_token, prefix):
+    r = requests.post(
         f"{SUPABASE_URL}/storage/v1/object/list/videos",
         headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {client_token['token']}",
                  "Content-Type": "application/json"},
-        json={"prefix": "drafts/exercises/", "limit": 100},
+        json={"prefix": prefix, "limit": 1000},
         timeout=10,
     )
-    assert r_list.status_code == 200
-    names = [x["name"] for x in r_list.json()]
-    assert any(n.startswith("sample-") for n in names), f"list has no sample-*: {names[:5]}"
+    assert r.status_code == 200
+    # list may return items where the user has no SELECT rights; at least no draft file name must leak.
+    names = [x.get("name", "") for x in r.json()]
+    for n in names:
+        full = f"{prefix}{n}"
+        assert not full.startswith("drafts/") or n in ("drafts", "drafts/"), f"draft leaked: {full}"
+
+
+def test_storage_read_non_draft_still_ok(client_token):
+    # Any non-draft object must still be readable. Use the public assets/music-fitness.mp3.
+    r = requests.get(
+        f"{SUPABASE_URL}/storage/v1/object/authenticated/videos/assets/music-fitness.mp3",
+        headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {client_token['token']}",
+                 "Range": "bytes=0-1023"},
+        timeout=15,
+    )
+    # If the file exists, must be 206; if it is simply absent in this environment, skip.
+    if r.status_code == 404:
+        pytest.skip("assets/music-fitness.mp3 not present in storage")
+    assert r.status_code == 206, f"non-draft read got {r.status_code}"
+
+
+def test_storage_write_to_drafts_refused(client_token):
+    # Writes/overwrites inside drafts/ must still be refused.
+    r = requests.post(
+        f"{SUPABASE_URL}/storage/v1/object/videos/drafts/_probe.txt",
+        headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {client_token['token']}",
+                 "Content-Type": "text/plain"},
+        data=b"probe",
+        timeout=10,
+    )
+    assert r.status_code in (400, 401, 403), f"drafts upload got {r.status_code}: {r.text[:120]}"
+    if r.status_code == 200:
+        # Undo if accidentally accepted.
+        requests.delete(f"{SUPABASE_URL}/storage/v1/object/videos/drafts/_probe.txt",
+                        headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {client_token['token']}"},
+                        timeout=10)
 
 
 def test_exercises_media_path_exposed_to_client(rest_h):

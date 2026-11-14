@@ -1,0 +1,42 @@
+{
+  "summary": "KFIT iteration 9 — verified the SQL migration 0005_draft_videos_admin_only.sql (new storage policy videos_read: bucket_id='videos' AND (public.is_admin() OR name NOT LIKE 'drafts/%')). CLIENT ROLE (REST): drafts/* are now refused for GET-with-Range (5/5 paths: sample-plank.beginner.fr.mp4, sample-plank.mp4, sample-plank.beginner.fr.json, sample-push-ups.beginner.fr.mp4, sample-goblet-squat.beginner.fr.mp4 → all 400 'Object not found'), sign (3/3 → 400 'Object not found'), list (prefix='drafts/exercises/', 'drafts/', '' → 200 with ZERO draft names leaked). Non-draft asset assets/music-fitness.mp3 remains readable (206). Writes still refused on both _probe/x.txt and drafts/_probe.txt. CLIENT still passes all 2 role / RLS reads (users self-only, programs/videos/exercises visible with ≥3/≥10/≥38 rows), plus exercises.media_path is still exposed to the client with 'drafts/...' path strings (paths only — files are no longer readable). ADMIN ROLE (REST, read-only): can still read a draft (206), sign a draft (200), and list drafts/exercises/ (62 files, sample-* visible). CLIENT UI (390x844): login OK; the 3 exercise sheets (Push-ups / Goblet Squat / Plank) each tested at beginner / intermediate / advanced → every one shows exactly 1 'video-unavailable' panel with 'La vidéo n'est pas encore disponible.', zero <video>, zero 'video-player', zero 'exercise-video-draft' notice, zero leaked 'Object not found'/'not be found' text. Zero storage console errors in the whole session. Training catalogue still loads. ADMIN UI (view only, logged out at the end): Push-ups sheet shows draft notice + plays the guided draft '<slug>.beginner.fr.mp4' (readyState=4, no video.error); /admin/edit?kind=exercise&id=<plank> shows the admin-media section with its VideoPlayer and status 'Vidéo en brouillon — en attente de validation, visible des administrateurs uniquement'. No approve/remove/save/delete pressed. WHERE 'The object can not be found here' COMES FROM: no string matching 'The object can not be found' / 'not be found' / 'object not found' exists in /app/frontend/src, /app/frontend/app or /app/backend — the app's user-facing strings are only t('videoUnavailable') ('La vidéo n'est pas encore disponible.'), t('videoError') ('La vidéo n'a pas pu être chargée.') and t('notFound') ('Ce contenu n'est pas disponible.'). On the CLIENT path the sheet short-circuits media to null (app/exercise/[id].tsx:38 'draft && user?.role !== \"admin\" ? null'), so the storage API is never even called → no raw error can be rendered. The only places where a Supabase error body could still surface are: (a) admin/edit.tsx media() helper which does setErr(`${t('error')} — ${e?.message}`) on approveExerciseMedia/removeExerciseMedia errors — an admin acting on a stale path could see 'Une erreur est survenue — Object not found'; (b) the Supabase dashboard / a direct storage URL opened in a browser tab — this is where 'The object can not be found here.' is Supabase Studio's wording, NOT the app's. Most likely the owner saw it in the Supabase dashboard while testing, not in the mobile UI. Deprecated packages detected: NONE. SafeAreaView issues detected: NONE. The fix is correct and no regression was found.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/tests/client_role_rest_tests.py",
+    "/app/tests/admin_role_rest_tests.py",
+    "/app/test_reports/pytest/iter9_client_storage.xml",
+    "/app/test_reports/pytest/iter9_admin_read.xml",
+    "/tmp/iter9_client_plank.png",
+    "/tmp/iter9_admin_plank_edit.png"
+  ],
+  "action_items": [
+    "LEAVE AS-IS, but FYI: the exercises.media_path column still returns 'drafts/...' strings to a client (documented and acknowledged — the file is now unreadable so the path leak is harmless). If you want a hermetic feed, filter media_path server-side when is_draft=true and caller is not admin (SQL view or Postgres RLS on a column via a VIEW).",
+    "MINOR HARDENING (admin UX): /app/frontend/app/admin/edit.tsx media() → setErr(`${t('error')} — ${e?.message ?? ''}`). If a stale draft is approved/removed after the file has been purged, the admin will see the raw Supabase 'Object not found' message appended. Consider replacing e.message by a translated string when the error maps to a 404/'Object not found'. NOT exploitable by clients (admin-only screen).",
+    "The owner's 'The object can not be found here.' message is the Supabase Studio variant of a 400/404 and is NOT rendered anywhere by the KFIT app. If reproduction is wanted, open any drafts/* storage URL directly as a client — this is expected after the migration."
+  ],
+  "critical_code_review_comments": [
+    "SQL migration 0005 is minimal and correct: it drops the over-broad videos_read policy from 0004 and recreates it with the drafts/ guard, scoped to authenticated. Admin role is checked via public.is_admin() (same helper as other tables), consistent with the rest of the schema.",
+    "app/exercise/[id].tsx:38 'const media = draft && user?.role !== \"admin\" ? null : e?.media_path;' is the correct belt-and-suspenders guard: even if the storage policy regressed, the client UI would still not try to sign a drafts/* URL. Good defence in depth.",
+    "src/home.ts loadMedia falls back from the guided variant to the base path on any error — with the new policy BOTH will fail for a client, which is why no raw error surfaces in the UI (the useEffect in video-player.tsx then shows t('videoError'), but only if media was non-null). Correct.",
+    "Nothing to do on backend: this is a pure Supabase RLS change; the FastAPI /api does not proxy storage."
+  ],
+  "updated_files": [
+    "/app/tests/client_role_rest_tests.py — updated storage-drafts assertions to the new expected behaviour (refused). Added parametrized read/sign/list refusals, a non-draft read smoke test (assets/music-fitness.mp3 → 206), and a drafts/ write refusal probe.",
+    "/app/tests/admin_role_rest_tests.py — NEW, read-only admin REST suite: role=admin, drafts read 206, drafts sign 200, drafts/exercises/ list ≥60 files."
+  ],
+  "success_rate": {
+    "backend": "19/19 client_role storage+role tests green; 4/4 admin read-only tests green",
+    "frontend": "9/9 client exercise-sheet×level combinations show video-unavailable with no leaked error; admin sheet plays the guided draft (readyState=4) with no error; admin-media section renders with VideoPlayer and draft status"
+  },
+  "seed_data_creation": "None. No probe left behind in storage (write probes were refused as expected). Admin session logged out. Client session not touched beyond the three navigation probes and one training-tab visit.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Client storage regression tests live in /app/tests/client_role_rest_tests.py (parametrized DRAFT_PATHS); admin read-only parity in /app/tests/admin_role_rest_tests.py. After any future touch to the videos bucket RLS, re-run both. The exercise-sheet UI short-circuits storage calls for clients on drafts via app/exercise/[id].tsx:38, so a purely storage-layer RLS test is the only reliable gate for the policy itself.",
+  "rca_of_issue": "n/a — fix verified, no regression. The 'The object can not be found here.' string is Supabase Studio's rendering of a storage 404, shown in the Supabase dashboard (not in the KFIT app). The app shows t('videoUnavailable') / t('videoError') only, in the user's language."
+}
