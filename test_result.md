@@ -104,3 +104,5 @@
 agent_communication:
   - agent: "main"
     message: "Merged GitHub branch kfit-supabase (user's own code). Auth switched from backend JWT to Supabase Auth (email+password) in frontend/src/supabase.ts, src/auth.tsx, app/login.tsx; backend current_user() now also accepts Supabase access tokens (supabase_user_id). Google button removed. Supabase project requires e-mail confirmation (mailer_autoconfirm=false) and no confirmed Supabase test account exists, so a successful sign-in cannot be tested yet. Needs testing: sign-up -> confirm-email screen, login error states, backend token rejection, legacy endpoints."
+  - agent: "main"
+    message: "Iteration 2: pulled commit f46f2a2 (maps email_address_invalid/validation_failed -> authErr_email_invalid, network failures -> authErr_network). User created a CONFIRMED Supabase account; credentials in backend/.env (KFIT_TEST_EMAIL / KFIT_TEST_PASSWORD). Needs testing: successful sign-in, session persistence, logout, backend acceptance of real Supabase token, main screens after login, new error messages."

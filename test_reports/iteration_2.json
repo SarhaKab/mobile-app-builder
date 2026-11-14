@@ -1,0 +1,59 @@
+{
+  "summary": "Full end-to-end verification of the Supabase-auth transition on branch kfit-supabase, run with the confirmed real test account via env vars KFIT_TEST_EMAIL/KFIT_TEST_PASSWORD (never logged). BACKEND (12/12 tests pass): the new real-token suite /app/backend/tests/test_supabase_real_token.py obtains an access_token from Supabase, then GET /api/auth/me, /api/dashboard, /api/programs all return 200; /api/auth/me returns the expected e-mail and the same user_id on two consecutive calls (no duplicate Mongo user created on re-login). Legacy JWT path and 401-for-garbage-token still work. FRONTEND (mobile 390x844 web preview): sign-in via login-submit-button lands on authenticated tabs (no infinite spinner); Home, Training (3 programs, program/strength-balance detail opens), Coach (AI stream from /api/coach/chat produced a reply to 'Bonjour'), Profile (shows user e-mail + name), Nutrition, /progress and /booking routes all render without an error banner; session persists across page reload (/profile stays open); logout from profile returns to /welcome, root URL redirects to /welcome, reload stays logged out; re-login succeeds. Error paths: wrong password on the real account (ONE attempt) shows the FR translation 'E-mail ou mot de passe incorrect'; duplicate sign-up with the real account's e-mail (Supabase 200 with 0 identities) shows 'Un compte existe déjà avec cet e-mail' as expected. The @example.com sign-up attempt could NOT be validated against the email_invalid mapping: Supabase answered HTTP 429 on /auth/v1/signup (over_email_send_rate_limit still active from iteration 1); per the brief no retry was done, and the UI correctly showed the rate-limited message 'Trop de tentatives. Patiente quelques minutes puis réessaie' (authErr_rate_limited). Deprecated Expo API still detected: expo-router/unstable-native-tabs warning emitted at load. No profile field (name, lang, goal) was modified. No booking created. No account deleted or password changed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "sign-up with @example.com — expected authErr_email_invalid",
+        "issue": "Could not be exercised end-to-end: Supabase returned HTTP 429 (over_email_send_rate_limit) on the very first attempt, so the email_address_invalid branch never fired. The mapping itself is already present in code (/app/frontend/src/auth.tsx:47 maps 'email_address_invalid' and 'validation_failed' to AuthError('email_invalid'), and FR/EN/ES translations exist at /app/frontend/src/i18n.tsx:46/89/131 as authErr_email_invalid). Verdict: mapping is correct by code review; runtime proof is blocked by Supabase's shared-SMTP rate limit (same blocker reported in iteration 1).",
+        "affected_testIDs": ["login-submit-button"]
+      },
+      {
+        "flow": "/progress screen content",
+        "issue": "Route /progress loads without error but inner_text is only ~138 chars — appears nearly empty. May be an unseeded empty-state (user has no measurements yet) rather than a bug, but worth confirming with real seed data.",
+        "affected_testIDs": []
+      }
+    ],
+    "design_issues": [],
+    "react_native_issues": [
+      {
+        "component": "expo-router tabs",
+        "issue": "Deprecation warning at every bundle load: '`expo-router/unstable-native-tabs` is deprecated. Use `expo-router/native-tabs` instead.' Reference: /app/frontend/app/(tabs)/_layout.tsx — migrate the import from 'expo-router/unstable-native-tabs' to 'expo-router/native-tabs'. (Carried over from iteration 1, not fixed yet.)"
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_supabase_real_token.py",
+    "/app/backend/tests/test_auth_supabase_transition.py",
+    "/app/test_reports/pytest/supabase_real_token.xml",
+    "/app/test_reports/pytest/supabase_transition.xml"
+  ],
+  "action_items": [
+    "Replace the deprecated 'expo-router/unstable-native-tabs' import in /app/frontend/app/(tabs)/_layout.tsx with 'expo-router/native-tabs'.",
+    "Runtime verification of the email_invalid toast remains blocked by Supabase's SMTP rate limit. Either (a) wait for the per-project signup rate limit window to expire (~hours), (b) temporarily disable the 'blocked e-mail domains' rule in Supabase so Supabase accepts @example.com and the test can observe 'Cette adresse e-mail n'a pas été acceptée', or (c) configure a real SMTP provider (recommended in docs/AUTH.md). The code mapping is already correct.",
+    "Optional: on /progress, confirm expected empty-state render for a user with no measurements, or seed minimal progress data for the test account so the screen is non-trivial."
+  ],
+  "critical_code_review_comments": [
+    "backend/server.py supabase_user_id(): correctly uses supabase_id as the primary key; e-mail-based legacy linking requires email_confirmed_at before merging (good — prevents hijacking). TTL cache on (token -> user_id) with a 5000-entry safety flush is fine.",
+    "frontend/src/auth.tsx toAuthError(): now covers invalid_credentials, email_not_confirmed, user_already_exists/email_exists, weak_password, email_address_invalid/validation_failed, rate_limited (over_* or HTTP 429) and network — complete for the Supabase surface in use.",
+    "frontend/src/auth.tsx register(): correctly detects the 'account already exists but unconfirmed' spoofing case via data.user.identities.length === 0 (line 138) — verified today with a real duplicate attempt.",
+    "frontend/src/api.ts: tokenProvider is pulled fresh from supabase.auth.getSession() on every call, so a just-refreshed access_token is always used. Good.",
+    "frontend/app/_layout.tsx Gate: redirect when user is undefined vs null is handled correctly — reload after sign-in keeps the user on /profile (confirmed)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_supabase_real_token.py (new, 5 focused pytest cases exercising a real Supabase access_token end-to-end)"
+  ],
+  "success_rate": {
+    "backend": "100% (12/12: 7 transition contract tests + 5 real-token tests)",
+    "frontend": "~95% — sign-in, all tabs, program detail, coach AI stream, profile, nutrition/progress/booking, session persistence, logout, protected-route redirect, re-login, wrong-password translation, duplicate sign-up all PASS. Only email_invalid error toast could not be observed at runtime (blocked by Supabase SMTP 429, not an app bug)."
+  },
+  "seed_data_creation": "None. Sign-up attempt with kfit.test.1794651882@example.com was REJECTED by Supabase (429 over_email_send_rate_limit) — no user created, no clean-up required. Duplicate sign-up used the existing confirmed account — no new row. No profile fields were changed on the real account.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Everything the brief asked for is green except the one error-toast assertion for @example.com, which depends on Supabase's per-project SMTP rate limit being reset. If a future iteration needs to prove that toast, either wait out the Supabase cool-down or temporarily allow @example.com in the project settings. All other flows are reproducible from /app/backend/tests/test_supabase_real_token.py (backend) and a Playwright scenario driven by env vars KFIT_TEST_EMAIL / KFIT_TEST_PASSWORD (frontend).",
+  "rca_of_issue": "No bugs introduced in this iteration. Residual deprecation (expo-router/unstable-native-tabs) is cosmetic: the native-tabs module has been promoted out of 'unstable' in expo-router — change one import line in /app/frontend/app/(tabs)/_layout.tsx. Residual @example.com gap is an environmental rate-limit on Supabase shared SMTP, not an app defect; iteration-1 attempts consumed the quota and the limit is still active."
+}
