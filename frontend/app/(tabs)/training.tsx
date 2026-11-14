@@ -127,7 +127,7 @@ export default function Training() {
               <View style={{ flex: 1, gap: 2 }}>
                 <Text style={s.rowTitle} numberOfLines={1}>{loc(kind === "video" ? item.title : item.name, lang)}</Text>
                 <Text style={s.rowMeta} numberOfLines={1}>
-                  {[kind === "video" ? loc(item.program?.title, lang) : item.muscle_groups?.join(", "),
+                  {[kind === "video" ? loc(item.program?.title, lang) : item.muscle_groups?.map((m: string) => t(`m_${m}` as TKey) ?? m).join(", "),
                     kind === "video" && minutesOf(item) ? `${minutesOf(item)} ${t("minutes")}` : null,
                     item.level ? t(item.level) : null].filter(Boolean).join(" · ")}
                 </Text>

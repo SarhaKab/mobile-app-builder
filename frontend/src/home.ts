@@ -21,9 +21,33 @@ export type Video = {
   level: Level | null; goal: Goal | null; storage_path: string | null; is_premium: boolean; is_published: boolean;
   program?: { title: L10n; cover_path: string | null } | null;
 };
+export type LevelVariant = { sets?: number | null; reps?: string | null; rest_seconds?: number | null; note?: L10n };
 export type Exercise = {
   id: string; slug: string; name: L10n; instructions: L10n; muscle_groups: string[]; equipment: string[];
-  level: Level | null; is_published: boolean;
+  level: Level | null; is_published: boolean; media_path: string | null; level_variants: Partial<Record<Level, LevelVariant>>;
+};
+
+// Vidéos : fichiers du stockage privé « videos », lus par URL signée de courte durée.
+// Un chemin sous « drafts/ » est un brouillon en attente de validation : seuls les administrateurs le voient.
+export const DRAFT_PREFIX = "drafts/";
+export const isDraftMedia = (path: string | null | undefined) => !!path?.startsWith(DRAFT_PREFIX);
+export const signedVideoUrl = async (path: string) => {
+  const { data, error } = await supabase.storage.from("videos").createSignedUrl(path, 3600);
+  if (error) throw new Error(error.message);
+  return data.signedUrl;
+};
+/** Valide une vidéo brouillon : le fichier quitte « drafts/ » et devient visible des clients. */
+export const approveExerciseMedia = async (exerciseId: string, path: string) => {
+  const to = path.slice(DRAFT_PREFIX.length);
+  await supabase.storage.from("videos").remove([to]); // remplace une éventuelle version précédente
+  const { error } = await supabase.storage.from("videos").move(path, to);
+  if (error) throw new Error(error.message);
+  unwrap(await supabase.from("exercises").update({ media_path: to }).eq("id", exerciseId));
+  return to;
+};
+export const removeExerciseMedia = async (exerciseId: string, path: string) => {
+  unwrap(await supabase.from("exercises").update({ media_path: null }).eq("id", exerciseId));
+  await supabase.storage.from("videos").remove([path]);
 };
 export type VideoExercise = { position: number; sets: number | null; reps: string | null; exercise: Pick<Exercise, "id" | "name" | "level"> };
 export type HistoryRow = {
@@ -47,7 +71,7 @@ function unwrap<T>({ data, error }: { data: T | null; error: { message: string }
 
 const PROGRAM_COLS = "id,slug,title,description,goal,level,weeks,cover_path,is_premium,is_published";
 const VIDEO_COLS = "id,program_id,position,title,description,duration_seconds,level,goal,storage_path,is_premium,is_published";
-const EXERCISE_COLS = "id,slug,name,instructions,muscle_groups,equipment,level,is_published";
+const EXERCISE_COLS = "id,slug,name,instructions,muscle_groups,equipment,level,is_published,media_path,level_variants";
 
 // `all` = inclure les contenus non publiés (administration ; refusé par la base aux autres rôles).
 export const listPrograms = async (all = false) => {

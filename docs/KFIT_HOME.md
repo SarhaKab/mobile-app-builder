@@ -20,7 +20,7 @@
 
 | Élément | Ce qu'il faut |
 | --- | --- |
-| Lecture vidéo | Aucun fichier vidéo n'existe. À faire : envoi de fichiers dans le stockage privé `videos` depuis l'administration + lecteur. |
+| Vidéos des séances | Le lecteur existe (`src/components/video-player.tsx`) mais aucune séance n'a de fichier. Envoi de fichiers depuis l'administration : à faire. |
 | Image de couverture | Saisie d'une adresse (URL) uniquement ; pas encore d'envoi d'image. |
 | Contenus premium | Le drapeau « Premium » est affiché mais ne bloque rien tant que l'abonnement n'est pas intégré. |
 | Séries / répétitions par séance | Non modifiables depuis l'administration (présentes dans les contenus d'exemple). |
@@ -40,3 +40,16 @@ Dans Supabase → SQL Editor :
 update public.users set role = 'admin'
 where id = (select id from auth.users where email = 'adresse@exemple.com');
 ```
+
+## Fiches d'exercices et vidéos de démonstration (14/11/2026)
+
+- Migration `supabase/migrations/0004_exercise_levels.sql` (appliquée) : colonne `exercises.level_variants`
+  (séries, répétitions, repos, adaptation par niveau) et lecture du stockage privé `videos` par les utilisateurs connectés.
+- Fiches des 38 exercices d'exemple rédigées par IA (`backend/scripts/write_exercise_sheets.py`) : consignes FR/EN/ES,
+  muscles et matériel (codes traduits `m_*` / `eq_*` dans `src/i18n.tsx`), variantes par niveau. **À relire par un professionnel.**
+  Modifiables dans l'administration.
+- Vidéos générées par IA (Fal.ai, `backend/scripts/generate_exercise_videos.py`, modèle Wan 3.0, 8 s, 720p, sans son) :
+  essai sur 3 exercices (pompes, goblet squat, planche). Elles sont en **brouillon** (`drafts/…` dans le stockage) :
+  seuls les administrateurs les voient ; validation ou retrait depuis Administration → exercice → « Vidéo de démonstration ».
+- Limite connue : le masquage des brouillons est fait par l'application ; un utilisateur connecté qui connaîtrait le chemin
+  exact du fichier pourrait le lire (règle de stockage ouverte à tout le bucket `videos`).

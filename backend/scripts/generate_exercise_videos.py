@@ -2,7 +2,9 @@
 
 Usage : python generate_exercise_videos.py <slug> [<slug> ...]
 Nécessite FAL_KEY dans l'environnement. Chaque vidéo est facturée sur le compte Fal.ai.
-Les fichiers sont enregistrés dans /tmp/kfit_videos/<slug>.mp4 ; rien n'est publié par ce script.
+Les fichiers sont enregistrés dans /tmp/kfit_videos/<slug>.mp4 puis envoyés en BROUILLON dans Supabase
+(visibles des seuls administrateurs jusqu'à validation). `python generate_exercise_videos.py --upload <slug>`
+envoie un fichier déjà généré sans relancer la génération.
 """
 import json
 import os
@@ -35,6 +37,19 @@ def prompt(move: str) -> str:
             "No text, no logo, no other people, no camera movement.")
 
 
+def upload_draft(slug: str) -> str:
+    """Envoie la vidéo dans le stockage privé « videos » en BROUILLON (dossier drafts/) et la rattache à l'exercice.
+    Un brouillon n'est montré qu'aux administrateurs, qui le valident ou le retirent depuis l'application."""
+    from write_exercise_sheets import admin_client, supabase_cfg
+    c, rest = admin_client()
+    path = f"drafts/exercises/{slug}.mp4"
+    r = c.post(f"{supabase_cfg()[0]}/storage/v1/object/videos/{path}", content=(OUT / f"{slug}.mp4").read_bytes(),
+               headers={"Content-Type": "video/mp4", "x-upsert": "true"}, timeout=300)
+    r.raise_for_status()
+    c.patch(rest + f"exercises?slug=eq.{slug}", json={"media_path": path}).raise_for_status()
+    return path
+
+
 def main(slugs: list[str]) -> None:
     OUT.mkdir(exist_ok=True)
     report = {}
@@ -46,7 +61,7 @@ def main(slugs: list[str]) -> None:
             url = result["video"]["url"]
             data = httpx.get(url, timeout=120, follow_redirects=True).content
             (OUT / f"{slug}.mp4").write_bytes(data)
-            report[slug] = {"ok": True, "bytes": len(data), "seconds": round(time.time() - started)}
+            report[slug] = {"ok": True, "bytes": len(data), "seconds": round(time.time() - started), "draft": upload_draft(slug)}
         except Exception as exc:  # on continue avec les autres exercices
             report[slug] = {"ok": False, "error": str(exc)[:500]}
         (OUT / "report.json").write_text(json.dumps(report, indent=2))
@@ -54,4 +69,7 @@ def main(slugs: list[str]) -> None:
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:] or list(MOVES))
+    if sys.argv[1:2] == ["--upload"]:
+        print([upload_draft(s) for s in sys.argv[2:]])
+    else:
+        main(sys.argv[1:] or list(MOVES))

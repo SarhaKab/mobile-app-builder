@@ -6,12 +6,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/src/auth";
 import { Button, ErrorText, FavoriteButton, SectionTitle, StackHeader } from "@/src/components/ui";
+import { VideoPlayer } from "@/src/components/video-player";
 import { completeVideo, getVideo, listHistory, loc, minutesOf, Video, VideoExercise, videoExercises } from "@/src/home";
 import { TKey, useI18n } from "@/src/i18n";
 import { makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
-// Fiche d'une séance vidéo. La lecture vidéo n'est pas encore intégrée : tant qu'aucun
-// fichier n'est disponible, l'écran l'indique clairement et présente le détail de la séance.
+// Fiche d'une séance vidéo : lecteur (si un fichier existe) et détail de la séance.
 export default function VideoDetail() {
   const s = useStyles();
   const { colors } = useTheme();
@@ -45,10 +45,7 @@ export default function VideoDetail() {
         <Text style={s.missing} testID="video-missing">{err ? t("error") : t("notFound")}</Text>
       ) : (
         <ScrollView contentContainerStyle={[s.content, { paddingBottom: insets.bottom + spacing.lg }]}>
-          <View style={s.player} testID="video-unavailable">
-            <Ionicons name="videocam-off-outline" size={32} color={colors.muted} />
-            <Text style={s.playerText}>{t("videoUnavailable")}</Text>
-          </View>
+          <VideoPlayer path={v.storage_path} />
           <Text style={s.meta}>
             {[loc(v.program?.title, lang), minutesOf(v) ? `${minutesOf(v)} ${t("minutes")}` : null, v.level ? t(v.level) : null,
               v.goal ? t(`goal_${v.goal}` as TKey) : null].filter(Boolean).join(" · ")}
@@ -79,8 +76,6 @@ const useStyles = makeStyles((c) => ({
   root: { flex: 1, backgroundColor: c.surface },
   content: { padding: spacing.md, gap: spacing.md },
   missing: { color: c.muted, textAlign: "center", marginTop: 40, paddingHorizontal: spacing.lg },
-  player: { height: 190, borderRadius: radius.lg, backgroundColor: c.surfaceSecondary, borderWidth: 1, borderColor: c.border, alignItems: "center", justifyContent: "center", gap: spacing.sm, padding: spacing.md },
-  playerText: { color: c.muted, fontSize: 13, textAlign: "center" },
   meta: { color: c.brandPrimary, fontSize: 13, fontWeight: "600" },
   desc: { color: c.onSurfaceSecondary, fontSize: 15, lineHeight: 22 },
   ex: { flexDirection: "row", alignItems: "center", gap: spacing.sm, padding: spacing.md, minHeight: 52, borderRadius: radius.md, backgroundColor: c.surfaceSecondary },

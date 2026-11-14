@@ -51,7 +51,7 @@ const en = {
   goal_cardio: "Cardio", goal_mobility: "Mobility", goal_fitness_recovery: "Back in shape",
   noFavorites: "No favourites yet. Tap the heart on a programme, video or exercise.", noMatch: "Nothing matches these filters.",
   noContent: "No content published yet.", notFound: "This content is not available.", noSessions: "No session in this programme yet.",
-  videoUnavailable: "The video for this session is not available yet.", doneAgain: "Done again",
+  videoUnavailable: "The video is not available yet.", doneAgain: "Done again",
   muscles: "Muscles", equipment: "Equipment", instructions: "Instructions", noInstructions: "Instructions not written yet.",
   workoutHistory: "Workout history", noHistory: "No workout completed yet.", deletedContent: "Removed content",
   contactTitle: "My details", fullName: "Name", phone: "Phone number", address1: "Address", address2: "Address line 2 (optional)",
@@ -67,6 +67,15 @@ const en = {
   durationMin: "Duration (minutes)", delete: "Delete", confirmDelete: "Tap again to delete permanently",
   slugInvalid: "Identifier: lowercase letters, digits and hyphens only", titleRequired: "Enter a title in at least one language",
   listHint: "comma-separated",
+  reps: "reps", rest: "rest", restSeconds: "Rest (s)", byLevel: "By level", levelNote: "Adaptation",
+  videoError: "The video could not be loaded.", videoDraft: "Draft video — awaiting validation, visible to administrators only",
+  videoApproved: "Video validated — visible to clients", demoVideo: "Demonstration video", approveVideo: "Validate the video", removeVideo: "Remove the video",
+  m_chest: "Chest", m_back: "Back", m_shoulders: "Shoulders", m_biceps: "Biceps", m_triceps: "Triceps", m_forearms: "Forearms",
+  m_core: "Core", m_obliques: "Obliques", m_lower_back: "Lower back", m_glutes: "Glutes", m_quads: "Quads", m_hamstrings: "Hamstrings",
+  m_calves: "Calves", m_hips: "Hips", m_full_body: "Full body",
+  eq_none: "No equipment", eq_mat: "Mat", eq_dumbbells: "Dumbbells", eq_kettlebell: "Kettlebell", eq_barbell: "Barbell", eq_bench: "Bench",
+  eq_pull_up_bar: "Pull-up bar", eq_cable_machine: "Cable machine", eq_leg_press_machine: "Leg press", eq_leg_curl_machine: "Leg curl machine",
+  eq_dip_bars: "Dip bars", eq_box: "Box / step", eq_resistance_band: "Resistance band", eq_rack: "Squat rack",
 };
 type Dict = typeof en;
 
@@ -115,7 +124,7 @@ const es: Dict = {
   goal_cardio: "Cardio", goal_mobility: "Movilidad", goal_fitness_recovery: "Volver a estar en forma",
   noFavorites: "Aún no tienes favoritos. Toca el corazón en un programa, video o ejercicio.", noMatch: "Nada coincide con estos filtros.",
   noContent: "Aún no hay contenido publicado.", notFound: "Este contenido no está disponible.", noSessions: "Este programa aún no tiene sesiones.",
-  videoUnavailable: "El video de esta sesión aún no está disponible.", doneAgain: "Hecho otra vez",
+  videoUnavailable: "El video aún no está disponible.", doneAgain: "Hecho otra vez",
   muscles: "Músculos", equipment: "Material", instructions: "Instrucciones", noInstructions: "Instrucciones aún no redactadas.",
   workoutHistory: "Historial de entrenos", noHistory: "Aún no has completado ningún entreno.", deletedContent: "Contenido eliminado",
   contactTitle: "Mis datos", fullName: "Nombre", phone: "Teléfono", address1: "Dirección", address2: "Complemento de dirección (opcional)",
@@ -131,6 +140,15 @@ const es: Dict = {
   durationMin: "Duración (minutos)", delete: "Eliminar", confirmDelete: "Toca de nuevo para eliminar definitivamente",
   slugInvalid: "Identificador: solo minúsculas, cifras y guiones", titleRequired: "Indica un título en al menos un idioma",
   listHint: "separados por comas",
+  reps: "reps", rest: "descanso", restSeconds: "Descanso (s)", byLevel: "Según el nivel", levelNote: "Adaptación",
+  videoError: "No se pudo cargar el video.", videoDraft: "Video en borrador — pendiente de validación, visible solo para administradores",
+  videoApproved: "Video validado — visible para los clientes", demoVideo: "Video de demostración", approveVideo: "Validar el video", removeVideo: "Quitar el video",
+  m_chest: "Pecho", m_back: "Espalda", m_shoulders: "Hombros", m_biceps: "Bíceps", m_triceps: "Tríceps", m_forearms: "Antebrazos",
+  m_core: "Core", m_obliques: "Oblicuos", m_lower_back: "Lumbares", m_glutes: "Glúteos", m_quads: "Cuádriceps", m_hamstrings: "Isquiotibiales",
+  m_calves: "Gemelos", m_hips: "Caderas", m_full_body: "Cuerpo completo",
+  eq_none: "Sin material", eq_mat: "Esterilla", eq_dumbbells: "Mancuernas", eq_kettlebell: "Kettlebell", eq_barbell: "Barra", eq_bench: "Banco",
+  eq_pull_up_bar: "Barra de dominadas", eq_cable_machine: "Polea", eq_leg_press_machine: "Prensa de piernas", eq_leg_curl_machine: "Máquina de curl femoral",
+  eq_dip_bars: "Barras paralelas", eq_box: "Cajón / step", eq_resistance_band: "Banda elástica", eq_rack: "Rack de sentadillas",
 };
 
 const fr: Dict = {
@@ -178,7 +196,7 @@ const fr: Dict = {
   goal_cardio: "Cardio", goal_mobility: "Mobilité", goal_fitness_recovery: "Remise en forme",
   noFavorites: "Aucun favori pour l'instant. Touche le cœur sur un programme, une vidéo ou un exercice.", noMatch: "Aucun contenu ne correspond à ces filtres.",
   noContent: "Aucun contenu publié pour le moment.", notFound: "Ce contenu n'est pas disponible.", noSessions: "Ce programme n'a pas encore de séance.",
-  videoUnavailable: "La vidéo de cette séance n'est pas encore disponible.", doneAgain: "Refaite",
+  videoUnavailable: "La vidéo n'est pas encore disponible.", doneAgain: "Refaite",
   muscles: "Muscles", equipment: "Matériel", instructions: "Consignes", noInstructions: "Consignes pas encore rédigées.",
   workoutHistory: "Historique des séances", noHistory: "Aucune séance terminée pour l'instant.", deletedContent: "Contenu supprimé",
   contactTitle: "Mes coordonnées", fullName: "Nom", phone: "Numéro de téléphone", address1: "Adresse", address2: "Complément d'adresse (optionnel)",
@@ -194,6 +212,15 @@ const fr: Dict = {
   durationMin: "Durée (minutes)", delete: "Supprimer", confirmDelete: "Touche à nouveau pour supprimer définitivement",
   slugInvalid: "Identifiant : minuscules, chiffres et tirets uniquement", titleRequired: "Indique un titre dans au moins une langue",
   listHint: "séparés par des virgules",
+  reps: "rép.", rest: "repos", restSeconds: "Repos (s)", byLevel: "Selon le niveau", levelNote: "Adaptation",
+  videoError: "La vidéo n'a pas pu être chargée.", videoDraft: "Vidéo en brouillon — en attente de validation, visible des administrateurs uniquement",
+  videoApproved: "Vidéo validée — visible des clients", demoVideo: "Vidéo de démonstration", approveVideo: "Valider la vidéo", removeVideo: "Retirer la vidéo",
+  m_chest: "Pectoraux", m_back: "Dos", m_shoulders: "Épaules", m_biceps: "Biceps", m_triceps: "Triceps", m_forearms: "Avant-bras",
+  m_core: "Gainage / abdos", m_obliques: "Obliques", m_lower_back: "Lombaires", m_glutes: "Fessiers", m_quads: "Quadriceps", m_hamstrings: "Ischio-jambiers",
+  m_calves: "Mollets", m_hips: "Hanches", m_full_body: "Corps entier",
+  eq_none: "Aucun matériel", eq_mat: "Tapis", eq_dumbbells: "Haltères", eq_kettlebell: "Kettlebell", eq_barbell: "Barre", eq_bench: "Banc",
+  eq_pull_up_bar: "Barre de traction", eq_cable_machine: "Poulie", eq_leg_press_machine: "Presse à cuisses", eq_leg_curl_machine: "Machine à ischios",
+  eq_dip_bars: "Barres parallèles", eq_box: "Box / step", eq_resistance_band: "Élastique", eq_rack: "Rack à squat",
 };
 
 const DICTS: Record<Lang, Dict> = { en, es, fr };

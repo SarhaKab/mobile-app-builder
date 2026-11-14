@@ -6,14 +6,15 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/src/auth";
 import { Button, Chips, ErrorText, Field, StackHeader } from "@/src/components/ui";
-import { GOALS, LEVELS, listPrograms, loc, Program } from "@/src/home";
+import { VideoPlayer } from "@/src/components/video-player";
+import { approveExerciseMedia, GOALS, isDraftMedia, LEVELS, listPrograms, loc, Program, removeExerciseMedia } from "@/src/home";
 import { LANGS, TKey, useI18n } from "@/src/i18n";
 import { supabase } from "@/src/supabase";
-import { makeStyles, spacing, useTheme } from "@/src/theme";
+import { makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
 // Formulaire d'administration d'un contenu KFIT HOME (création, modification, suppression).
 type Kind = "program" | "video" | "exercise";
-type FieldType = "text" | "l10n" | "l10nLong" | "int" | "minutes" | "list" | "goal" | "level" | "program" | "bool";
+type FieldType = "text" | "l10n" | "l10nLong" | "int" | "minutes" | "list" | "goal" | "level" | "program" | "bool" | "levels";
 type FieldDef = { key: string; label: TKey; type: FieldType };
 
 const TABLE: Record<Kind, string> = { program: "programs", video: "videos", exercise: "exercises" };
@@ -36,6 +37,7 @@ const FORMS: Record<Kind, FieldDef[]> = {
     { key: "slug", label: "slug", type: "text" }, { key: "name", label: "titleField", type: "l10n" },
     { key: "instructions", label: "instructions", type: "l10nLong" }, { key: "muscle_groups", label: "muscles", type: "list" },
     { key: "equipment", label: "equipment", type: "list" }, { key: "level", label: "level", type: "level" },
+    { key: "level_variants", label: "byLevel", type: "levels" },
     { key: "is_published", label: "published", type: "bool" },
   ],
 };
@@ -54,7 +56,7 @@ export default function AdminEdit() {
   const fields = FORMS[kind];
   const [form, setForm] = useState<Record<string, any> | null>(null);
   const [programs, setPrograms] = useState<Program[]>([]);
-  const [busy, setBusy] = useState<"save" | "delete" | null>(null);
+  const [busy, setBusy] = useState<"save" | "delete" | "media" | null>(null);
   const [confirm, setConfirm] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -86,6 +88,18 @@ export default function AdminEdit() {
       else if (d.type === "list") row[d.key] = toList(v ?? "");
       else if (d.type === "l10n" || d.type === "l10nLong") row[d.key] = Object.fromEntries(LANGS.map((l) => [l, (v?.[l] ?? "").trim()]).filter(([, x]) => x));
       else if (d.type === "bool") row[d.key] = !!v;
+      else if (d.type === "levels") {
+        // Un niveau n'est enregistré que s'il a au moins une valeur ; séries et repos doivent être des entiers.
+        row[d.key] = {};
+        for (const l of LEVELS) {
+          const x = v?.[l] ?? {};
+          const sets = toInt(String(x.sets ?? "")), rest = toInt(String(x.rest_seconds ?? ""));
+          if ([sets, rest].some((n) => n != null && (Number.isNaN(n) || n < 0))) return setErr(t("required"));
+          const note = Object.fromEntries(LANGS.map((g) => [g, (x.note?.[g] ?? "").trim()]).filter(([, y]) => y));
+          const reps = String(x.reps ?? "").trim() || null;
+          if (sets != null || rest != null || reps || Object.keys(note).length) row[d.key][l] = { sets, reps, rest_seconds: rest, note };
+        }
+      }
       else if (d.type === "text") row[d.key] = (v ?? "").trim() || null;
       else row[d.key] = v ?? null;
     }
@@ -101,6 +115,12 @@ export default function AdminEdit() {
     setBusy(null);
     if (error) return setErr(`${t("error")} — ${error.message}`);
     router.back();
+  };
+
+  // Validation ou retrait de la vidéo de démonstration (effet immédiat, indépendant du bouton Enregistrer).
+  const media = async (action: () => Promise<string | null>) => {
+    setBusy("media"); setErr(null);
+    try { set("media_path", await action()); } catch (e: any) { setErr(`${t("error")} — ${e?.message ?? ""}`); } finally { setBusy(null); }
   };
 
   const remove = async () => {
@@ -134,6 +154,29 @@ export default function AdminEdit() {
                   value={form[d.key]?.[l] ?? ""} onChangeText={(v) => set(d.key, { ...(form[d.key] ?? {}), [l]: v })} maxLength={d.type === "l10n" ? 120 : 2000} />
               ));
             }
+            if (d.type === "levels") {
+              const setLv = (l: string, k: string, v: any) => set(d.key, { ...(form[d.key] ?? {}), [l]: { ...(form[d.key]?.[l] ?? {}), [k]: v } });
+              return LEVELS.map((l) => {
+                const x = form[d.key]?.[l] ?? {};
+                return (
+                  <View key={l} style={s.levelBox}>
+                    <Text style={s.levelTitle}>{t(l)}</Text>
+                    <View style={s.levelRow}>
+                      {([["sets", "sets"], ["reps", "reps"], ["rest_seconds", "restSeconds"]] as [string, TKey][]).map(([k, label]) => (
+                        <View key={k} style={{ flex: 1 }}>
+                          <Field testID={`${tid}-${l}-${k}`} label={t(label)} value={x[k] == null ? "" : String(x[k])} onChangeText={(v) => setLv(l, k, v)}
+                            keyboardType={k === "reps" ? "default" : "number-pad"} maxLength={k === "reps" ? 20 : 3} />
+                        </View>
+                      ))}
+                    </View>
+                    {LANGS.map((g) => (
+                      <Field key={g} testID={`${tid}-${l}-note-${g}`} label={`${t("levelNote")} (${g.toUpperCase()})`} value={x.note?.[g] ?? ""}
+                        onChangeText={(v) => setLv(l, "note", { ...(x.note ?? {}), [g]: v })} maxLength={300} />
+                    ))}
+                  </View>
+                );
+              });
+            }
             if (d.type === "bool") {
               return (
                 <View key={d.key} style={s.switchRow}>
@@ -156,6 +199,25 @@ export default function AdminEdit() {
                 keyboardType={d.type === "int" || d.type === "minutes" ? "number-pad" : "default"} maxLength={d.key === "cover_path" ? 500 : 160} />
             );
           })}
+          {kind === "exercise" && !!id && (
+            <View style={s.levelBox} testID="admin-media">
+              <Text style={s.levelTitle}>{t("demoVideo")}</Text>
+              {form.media_path ? (
+                <>
+                  <VideoPlayer path={form.media_path} loop />
+                  <Text style={isDraftMedia(form.media_path) ? s.mediaDraft : s.mediaOk} testID="admin-media-status">
+                    {t(isDraftMedia(form.media_path) ? "videoDraft" : "videoApproved")}
+                  </Text>
+                  {isDraftMedia(form.media_path) && (
+                    <Button testID="admin-media-approve" variant="secondary" icon="checkmark" title={t("approveVideo")}
+                      onPress={() => media(() => approveExerciseMedia(id, form.media_path))} loading={busy === "media"} disabled={!!busy} />
+                  )}
+                  <Button testID="admin-media-remove" variant="ghost" icon="trash-outline" title={t("removeVideo")}
+                    onPress={() => media(() => removeExerciseMedia(id, form.media_path).then(() => null))} disabled={!!busy} />
+                </>
+              ) : <Text style={s.mediaNone} testID="admin-media-status">{t("videoUnavailable")}</Text>}
+            </View>
+          )}
           <ErrorText msg={err} />
           <Button testID="admin-save-button" title={t("save")} onPress={save} loading={busy === "save"} disabled={busy === "delete"} />
           {!!id && (
@@ -174,4 +236,10 @@ const useStyles = makeStyles((c) => ({
   content: { padding: spacing.lg, gap: spacing.md },
   switchRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 48 },
   switchLabel: { color: c.onSurface, fontSize: 15 },
+  levelBox: { gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: c.border },
+  levelTitle: { color: c.onSurface, fontSize: 15, fontWeight: "700" },
+  levelRow: { flexDirection: "row", gap: spacing.sm },
+  mediaDraft: { color: c.warning, fontSize: 13, fontWeight: "600" },
+  mediaOk: { color: c.success, fontSize: 13, fontWeight: "600" },
+  mediaNone: { color: c.muted, fontSize: 13 },
 }));
