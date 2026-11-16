@@ -27,6 +27,10 @@ export default function Profile() {
     ["calendar-outline", t("myBookings"), "/booking"], ["nutrition-outline", t("nutritionTitle"), "/nutrition"], ["stats-chart-outline", t("progressTitle"), "/progress"],
     // L'espace d'administration n'est proposé qu'au rôle « admin » (la base applique la même règle).
     ...(user.role === "admin" ? [["settings-outline", t("adminContent"), "/admin"] as [IconName, string, string]] : []),
+    // KFIT ON DEMAND : espace professionnel pour les coachs (ou pour le devenir), vérification des dossiers pour l'équipe.
+    ...(user.role === "admin" || user.role === "support"
+      ? [["shield-checkmark-outline", t("adminCoaches"), "/admin/coaches"] as [IconName, string, string]]
+      : [["briefcase-outline", t(user.role === "coach" ? "proSpace" : "becomeCoach"), "/pro"] as [IconName, string, string]]),
   ];
 
   return (

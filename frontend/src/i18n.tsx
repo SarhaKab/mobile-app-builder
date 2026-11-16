@@ -1,4 +1,5 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useState } from "react";
+import { proEn, proEs, proFr } from "@/src/i18n-pro";
 
 import { storage } from "@/src/utils/storage";
 
@@ -6,6 +7,7 @@ export type Lang = "en" | "es" | "fr";
 export const LANGS: Lang[] = ["en", "es", "fr"];
 
 const en = {
+  ...proEn,
   tagline: "TRAIN SMARTER. LIVE STRONGER.",
   by: "BY T7 CORP",
   welcomeTitle: "Your tailor-made coaching in Tulum.",
@@ -81,6 +83,7 @@ const en = {
 type Dict = typeof en;
 
 const es: Dict = {
+  ...proEs,
   tagline: "ENTRENA MÁS INTELIGENTE. VIVE MÁS FUERTE.", by: "POR T7 CORP",
   welcomeTitle: "Tu coaching a medida en Tulum.",
   f1: "Programas personalizados", f2: "Nutrición inteligente (IA)", f3: "Sigue tu progreso", f4: "Coaching en línea y presencial",
@@ -154,6 +157,7 @@ const es: Dict = {
 };
 
 const fr: Dict = {
+  ...proFr,
   tagline: "TRAIN SMARTER. LIVE STRONGER.", by: "BY T7 CORP",
   welcomeTitle: "Ton coaching sur-mesure à Tulum.",
   f1: "Programmes personnalisés", f2: "Nutrition intelligente (IA)", f3: "Suivi de tes progrès", f4: "Coaching en ligne et sur place",

@@ -40,7 +40,13 @@
       "expo-web-browser",
       "expo-status-bar",
       "@react-native-vector-icons/ionicons",
-      "expo-video"
+      "expo-video",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "KFIT utilise votre position, uniquement à votre demande, pour trouver des coachs près de vous ou définir votre zone d'intervention."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
